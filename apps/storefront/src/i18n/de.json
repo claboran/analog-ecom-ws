@@ -1,0 +1,12 @@
+{
+  "site.name": "Analog Goods",
+  "nav.products": "Produkte",
+  "nav.home": "Startseite",
+  "locale.en": "English",
+  "locale.de": "Deutsch",
+  "footer.tagline": "Eine kleine Storefront-Demo für AnalogJS-i18n + spartan.ng.",
+  "footer.agents": "Maschinenlesbare Produktdaten",
+  "home.heading": "Waren, eingetragen statt abgetragen",
+  "home.subheading": "Ein kleiner Katalog aus Shirts und Schuhen, auf Englisch und Deutsch - als Markdown für Agenten und als gerenderte Seite für alle anderen.",
+  "home.cta": "Katalog durchsehen"
+}

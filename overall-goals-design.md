@@ -1,8 +1,11 @@
-# analog-ecom-ws — overall goals & design (v0.7, draft)
+# analog-ecom-ws — overall goals & design (v0.8, in progress)
 
-Status: **draft for review** — captures the shape of the demo so we can start
-scaffolding. Flag anything that looks wrong; the "Open questions" section at
-the bottom lists what's still genuinely undecided.
+Status: **scaffolding underway.** Design approved (v0.7); a first
+autonomous implementation pass built the workspace, i18n, layout, landing,
+product list/detail, and the markdown-negotiation/llms.txt/sitemap
+pieces — see §17 for exactly what's built, what's verified, and what's
+still open. Flag anything that looks wrong; the "Open questions" section
+lists what's still genuinely undecided.
 
 ## 1. What this is
 
@@ -533,10 +536,17 @@ services:
   s3mock:
     image: adobe/s3mock:latest
     environment:
-      - INITIAL_BUCKETS=products
+      - COM_ADOBE_TESTING_S3MOCK_STORE_INITIAL_BUCKETS=products
     ports:
       - "9090:9090"
 ```
+
+**Corrected during implementation:** the env var is
+`COM_ADOBE_TESTING_S3MOCK_STORE_INITIAL_BUCKETS`, not the plain
+`INITIAL_BUCKETS` originally sketched here — that name was deprecated as
+of S3Mock 4.5.0. Verified against the actual container: with the old name
+the bucket silently never gets created (empty `ListAllMyBucketsResult`,
+no error) — worth knowing since it fails quiet, not loud.
 
 Storefront and ingest CLI both point at `http://localhost:9090`, path-style
 addressing, via the shared `s3-client` lib's config (env vars, not hardcoded,
@@ -564,3 +574,94 @@ placeholder images (§6); Angular version satisfied by scaffolding fresh,
 no pinning needed (§10); JSON-LD scoped to the product detail page only
 (§11); `llms.txt` in scope for v1 (§9); `rxMethod`/search out of scope,
 accepted tradeoff (§8).
+
+## 17. Implementation status (as of this build session)
+
+**Built and verified** (production build + manual `curl` checks against
+a real running S3Mock, not just typechecked):
+
+- Workspace: `apps/storefront` (AnalogJS 2.7.2, Angular 22.1.x — auto-
+  satisfies streaming SSR's 21+ requirement), `apps/product-ingest`
+  (NestJS + `nest-commander`), `libs/product-schema` (Zod), `libs/
+  s3-client`. No `-e2e` apps, per the testing non-goal.
+- `docker-compose.yml` + `nx run product-ingest:seed`/`:clear` — 6
+  hand-authored products (3 shirts, 3 shoes), EN+DE, plus generated SVG
+  placeholders in `apps/storefront/public/images/products/`.
+- i18n: `[locale]` route segment, `provideI18n`, `injectSwitchLocale`,
+  hand-authored `en.json`/`de.json` UI strings. `/`, `/en`, `/de` all
+  verified rendering the correct language.
+- `AppLayoutComponent` — inline template/styles, `OnPush`, header/nav/
+  locale-switcher/footer.
+- Landing, product list (with the category-link filter, not a search
+  feature — see §8), and product detail pages, all `OnPush`, all backed
+  by `.server.ts` load functions hitting S3 at request time. One `@defer
+  (on viewport)` block on the landing page.
+- JSON-LD `Product` schema on the detail page.
+- Content negotiation + `.md` sibling route, `llms.txt`, and
+  `sitemap-products.xml` — all working, all verified with `curl`
+  (`Accept: text/markdown`, `-A "GPTBot/1.0"`, and the `.md` URL all
+  return identical raw markdown; plain requests still get rendered HTML).
+
+**Not yet built:**
+
+- OG image generation (`ImageResponse`/satori) — §11's plan stands,
+  just not implemented yet.
+- Streaming SSR (§10) — still explicitly a stretch goal, not attempted.
+- README / run instructions for a fresh clone.
+
+**Real gotchas hit during the build** (beyond the S3Mock env var fix in
+§14), worth knowing before touching this code:
+
+- **Nx `workspaceLayout` must be set *before* generating.** Without it,
+  Nx's current default `appsDir` is `.` (workspace root), and Analog's
+  generator happily scaffolds there instead of under `apps/`. Hit this
+  firsthand; fixed by setting `workspaceLayout` in `nx.json` first and
+  regenerating rather than moving files by hand. Folded into the
+  `setup-analog` skill.
+- **`vite-tsconfig-paths` didn't resolve the workspace libs** in this
+  app's SSR module runner, despite the `extends` chain in `tsconfig.json`
+  being correct. Fixed with explicit `resolve.alias` entries in
+  `vite.config.ts` for `@analog-ecom-ws/product-schema` and
+  `@analog-ecom-ws/s3-client`.
+- **Nitro has its own separate module resolution**, entirely apart from
+  Vite's. The same two workspace-lib aliases had to be repeated under
+  `analog({ nitro: { alias: {...} } })` or `.server.ts` load functions
+  and server middleware can't resolve them, even though the page
+  components (bundled by Vite, not Nitro) resolve fine.
+- **Root-caused and fixed:** the negotiation/`llms.txt`/sitemap
+  middleware used to hang indefinitely under `nx serve` (Vite dev
+  server), while working fine in a production build. Cause found in
+  `@analogjs/vite-plugin-nitro`'s dev-mode middleware runner
+  (`register-dev-middleware.js`): it calls each `server/middleware/*.ts`
+  handler directly and only inspects the *return value* to decide whether
+  to call `next()` — `if (!result) next();` — it never actually writes
+  that returned value to the HTTP response. That auto-serialization
+  (return a value, framework sends it) only happens in Nitro's real
+  production h3 pipeline, not in this dev-mode shim. So `return raw`
+  built the right string but nothing ever closed the response, and the
+  client waited forever. **Fix:** call h3's `send(event, raw, contentType)`
+  explicitly — it writes and ends the response itself, independent of any
+  wrapping context — then `return true` (a truthy sentinel) purely so the
+  dev-mode wrapper's `if (!result) next()` doesn't also try to continue
+  the chain into Angular's SSR renderer on an already-closed response.
+  Verified fixed in both `nx serve` and a production build. **Any future
+  `server/middleware/*.ts` handler that isn't purely pass-through should
+  use `send()` rather than `return`ing a body**, or it will silently hang
+  under the dev server the same way.
+- **Angular strips literal `<script>` elements from templates** (a
+  security default, even static ones with no bindings) — the JSON-LD
+  `<script type="application/ld+json">` had to go in via `Renderer2` in
+  the component constructor instead (run synchronously, not in an
+  `afterRender`/effect hook, so it's guaranteed to happen during SSR too).
+- **A page file with both a default-exported component *and*
+  `routeMeta.redirectTo`** throws `NG04014` at runtime (Angular rejects a
+  route with both `component` and `redirectTo`) — Analog's generated
+  route object sets `component` unconditionally regardless of
+  `routeMeta`. Fix: don't export a default component from a pure-redirect
+  page at all.
+- **My own initial `productObjectKey` implementation was wrong** relative
+  to this doc's own S3 layout in §5 — it added a redundant `products/`
+  prefix *inside* the `products` bucket. Fixed to match §5 exactly
+  (`s3://products/<sku>/<locale>.md` = bucket `products`, key
+  `<sku>/<locale>.md`); caught by actually inspecting objects in the
+  running S3Mock, not just by the code looking plausible.

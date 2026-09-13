@@ -1,0 +1,12 @@
+{
+  "site.name": "Analog Goods",
+  "nav.products": "Products",
+  "nav.home": "Home",
+  "locale.en": "English",
+  "locale.de": "Deutsch",
+  "footer.tagline": "A small storefront demo for AnalogJS i18n + spartan.ng.",
+  "footer.agents": "Machine-readable product data",
+  "home.heading": "Goods, worn in, not worn out",
+  "home.subheading": "A small catalog of shirts and shoes, in English and German, served as markdown for agents and rendered pages for everyone else.",
+  "home.cta": "Browse the catalog"
+}

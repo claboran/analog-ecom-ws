@@ -1,0 +1,186 @@
+import { ChangeDetectionStrategy, Component, computed, effect, inject, input } from '@angular/core';
+import { DomSanitizer } from '@angular/platform-browser';
+import { RouterLink } from '@angular/router';
+import { patchState, signalState } from '@ngrx/signals';
+import type { Locale, Product } from '@analog-ecom-ws/product-schema';
+import { JsonLdDirective } from '../directives/json-ld.directive';
+import { formatPrice } from '../lib/format-price';
+
+type ProductSelectionState = {
+  selectedSize: string | null;
+  selectedColor: string | null;
+};
+
+// Purely presentational, same pattern as ProductCardComponent for the
+// signal inputs: price/bodyHtml/jsonLd are pure derivations of `product`/
+// `locale`, so they stay plain `computed()` - there's nothing to "own"
+// between renders, and syncing them into signalState would just be a
+// second source of truth with no benefit.
+//
+// bodyHtml is rendered with `marked` in libs/s3-client, not Analog's own
+// <analog-markdown> (@analogjs/content) - that component's `content`
+// input looked like a clean fit (independent of the file-based content-
+// collection APIs), but it triggers a genuine SSR-breaking incompatibility
+// in this project's Vite/Nitro AOT server build (a partially-Ivy-linked
+// dependency needing the JIT compiler for PlatformLocation, which gets
+// tree-shaken out of the production bundle even with the standard
+// `import '@angular/compiler'` workaround). See product-schema.ts for the
+// full note.
+//
+// The size/color picker below is different: the user's *selection* is
+// real state that must persist independently of `product` until they
+// change it, but also has to *reset* whenever `product` changes -
+// Angular Router reuses this exact component instance across
+// /:locale/products/:skuA -> :skuB navigations (same route config, see
+// JsonLdDirective's comment for the same reuse fact), so without an
+// explicit reset a size picked on one product would leak into the next.
+// `signalState` + an `effect()` that re-derives the initial selection
+// from the input, plus action methods that `patchState` the user's
+// choice afterward, is the right shape for exactly that "sync-then-let-
+// the-user-override" state - a plain `computed()` can't do this because
+// selection has to survive independently of the current `product()` read.
+@Component({
+  selector: 'app-product-detail',
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [RouterLink, JsonLdDirective],
+  template: `
+    <div [appJsonLd]="jsonLd()">
+      <a routerLink=".." class="text-sm text-muted-foreground hover:text-foreground">&larr; Back to products</a>
+
+      <div class="mt-6 grid grid-cols-1 gap-10 md:grid-cols-2">
+        <img
+          [src]="product().images[0]"
+          [alt]="product().title"
+          class="w-full rounded-lg"
+          width="640"
+          height="640"
+        />
+
+        <div>
+          <p class="text-sm text-muted-foreground">{{ product().category.split('/')[1] }}</p>
+          <h1 class="mt-1 text-3xl font-semibold tracking-tight">{{ product().title }}</h1>
+          <p class="mt-3 text-xl">{{ price() }}</p>
+
+          <span
+            class="mt-4 inline-block rounded-full px-3 py-1 text-xs font-medium"
+            [class.bg-brand-accent]="product().stock > 0"
+            [class.text-brand-accent-foreground]="product().stock > 0"
+            [class.bg-muted]="product().stock === 0"
+            [class.text-muted-foreground]="product().stock === 0"
+          >
+            {{ product().stock > 0 ? 'In stock' : 'Out of stock' }}
+          </span>
+
+          <div class="mt-6 grid grid-cols-2 gap-6 text-sm">
+            <div>
+              <p class="text-muted-foreground">Size</p>
+              <div class="mt-2 flex flex-wrap gap-1.5">
+                @for (size of product().sizes; track size) {
+                  <button
+                    type="button"
+                    class="rounded-md border px-2.5 py-1 text-xs font-medium transition-colors"
+                    [class.border-primary]="selection.selectedSize() === size"
+                    [class.bg-primary]="selection.selectedSize() === size"
+                    [class.text-primary-foreground]="selection.selectedSize() === size"
+                    [class.border-border]="selection.selectedSize() !== size"
+                    (click)="selectSize(size)"
+                  >
+                    {{ size }}
+                  </button>
+                }
+              </div>
+            </div>
+            <div>
+              <p class="text-muted-foreground">Color</p>
+              <div class="mt-2 flex flex-wrap gap-1.5">
+                @for (color of product().colors; track color) {
+                  <button
+                    type="button"
+                    class="rounded-md border px-2.5 py-1 text-xs font-medium transition-colors"
+                    [class.border-primary]="selection.selectedColor() === color"
+                    [class.bg-primary]="selection.selectedColor() === color"
+                    [class.text-primary-foreground]="selection.selectedColor() === color"
+                    [class.border-border]="selection.selectedColor() !== color"
+                    (click)="selectColor(color)"
+                  >
+                    {{ color }}
+                  </button>
+                }
+              </div>
+            </div>
+          </div>
+
+          <div class="prose prose-sm mt-8 max-w-none" [innerHTML]="bodyHtml()"></div>
+        </div>
+      </div>
+    </div>
+  `,
+})
+export class ProductDetailComponent {
+  readonly product = input.required<Product>();
+  readonly locale = input.required<Locale>();
+
+  private readonly sanitizer = inject(DomSanitizer);
+
+  protected readonly selection = signalState<ProductSelectionState>({
+    selectedSize: null,
+    selectedColor: null,
+  });
+
+  constructor() {
+    // Re-derive the default selection (first size/color) whenever the
+    // underlying product changes - this is the "sync input into local
+    // state" half of the pattern, keeping the picker from carrying a
+    // stale or invalid selection across a reused component instance.
+    effect(() => {
+      const product = this.product();
+      patchState(this.selection, {
+        selectedSize: product.sizes[0] ?? null,
+        selectedColor: product.colors[0] ?? null,
+      });
+    });
+  }
+
+  // The "let the user override afterward" half - independent of
+  // `product()`, kept until the effect above resets it on the next
+  // product change.
+  protected selectSize(size: string): void {
+    patchState(this.selection, { selectedSize: size });
+  }
+
+  protected selectColor(color: string): void {
+    patchState(this.selection, { selectedColor: color });
+  }
+
+  protected readonly price = computed(() => formatPrice(this.product().price, this.locale()));
+
+  // The body already comes from our own markdown rendering (not user
+  // input); Angular still sanitizes [innerHTML] bindings by default,
+  // which is fine defense-in-depth here.
+  protected readonly bodyHtml = computed(() => this.sanitizer.bypassSecurityTrustHtml(this.product().bodyHtml));
+
+  // schema.org Product structured data, built from the same validated
+  // product the page renders - fed into [appJsonLd] above, which owns the
+  // actual DOM writing (overall-goals-design.md §11).
+  protected readonly jsonLd = computed(() => {
+    const product = this.product();
+    return {
+      '@context': 'https://schema.org',
+      '@type': 'Product',
+      sku: product.sku,
+      name: product.title,
+      description: product.bodyMarkdown
+        .replace(/^#.*\n+/, '')
+        .replace(/\*\*/g, '')
+        .replace(/\n+/g, ' ')
+        .trim(),
+      image: product.images,
+      offers: {
+        '@type': 'Offer',
+        priceCurrency: product.currency,
+        price: product.price,
+        availability: product.stock > 0 ? 'https://schema.org/InStock' : 'https://schema.org/OutOfStock',
+      },
+    };
+  });
+}
