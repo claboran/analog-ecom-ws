@@ -1,6 +1,7 @@
-import { ChangeDetectionStrategy, Component } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import type { RouteMeta } from '@analogjs/router';
+import { BreadcrumbStore } from '../../stores/breadcrumb.store';
 
 export const routeMeta: RouteMeta = {
   title: 'Analog Goods',
@@ -50,4 +51,10 @@ export const routeMeta: RouteMeta = {
     }
   `,
 })
-export default class LandingPageComponent {}
+export default class LandingPageComponent {
+  constructor() {
+    // Landing page is the breadcrumb root - clear whatever trail a
+    // previously visited page left behind.
+    inject(BreadcrumbStore).clear();
+  }
+}

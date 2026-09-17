@@ -214,6 +214,12 @@ showcase repo, verified by hand and by `curl` against a real running
 S3Mock throughout its build, not by a test suite. Full reasoning for all
 of this is in the design doc.
 
+A fake (client-only, no backend) cart is being considered as a future
+addition — not for the cart itself, but to give
+[WebMCP](https://github.com/webmachinelearning/webmcp) something concrete
+to expose (`add_to_cart`, `view_cart`), as the action-taking complement to
+the content-serving agent showcase above.
+
 ## Further reading
 
 [`overall-goals-design.md`](./overall-goals-design.md) has the complete

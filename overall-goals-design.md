@@ -274,12 +274,26 @@ instead of three.
   also what pairs directly with streaming SSR's `hydrate on` triggers if we
   turn that on (§10) — same `@defer` blocks, an extra `hydrate` clause.
 
-### State: `signalState` (+ `rxMethod`), not `signalStore`
+### State: `signalState` (+ `rxMethod`), not `signalStore` — except breadcrumbs
 
-Decided: `signalStore` is out of scope for v1 — it's built for shared state
-injected across multiple components, and nothing here is actually shared.
-`signalState` gives the same immutable-update ergonomics (`patchState`) for
-state that's scoped to a single page component, which is all we need:
+Decided: `signalStore` is out of scope for v1 for page-local state — it's
+built for shared state injected across multiple components, and most state
+here isn't actually shared. `signalState` gives the same immutable-update
+ergonomics (`patchState`) for state that's scoped to a single page
+component, which is all we need there:
+
+**Exception: breadcrumbs.** The breadcrumb trail genuinely is cross-component
+— `AppLayoutComponent` renders it, but only the active leaf page (products
+list, product detail) knows what it should say — so it's the one piece of
+state that fits `signalStore`'s actual purpose. `BreadcrumbStore`
+(`providedIn: 'root'`, `apps/storefront/src/app/stores/breadcrumb.store.ts`)
+holds just `trail: BreadcrumbItem[]`; each page sets it in its constructor
+(product detail via an `effect()`, since client-side nav between two `[sku]`
+routes reuses the component instance and needs to follow the newly loaded
+product), and the landing page clears it. No `TransferState` involved — the
+trail is derived synchronously from data the page component already has
+(route params, the already-loaded product), nothing async to replay across
+hydration.
 
 - **Product detail page:** primary data comes straight from
   `injectLoad<typeof load>()` — no `signalState` needed for that. If there's

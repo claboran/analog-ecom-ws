@@ -1,3 +1,4 @@
+---
 services:
   s3mock:
     image: adobe/s3mock:latest

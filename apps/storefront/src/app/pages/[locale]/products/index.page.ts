@@ -6,6 +6,7 @@ import { injectLoad } from '@analogjs/router';
 import type { RouteMeta } from '@analogjs/router';
 import type { Category } from '@analog-ecom-ws/product-schema';
 import { ProductCardComponent } from '../../../components/product-card.component';
+import { BreadcrumbStore } from '../../../stores/breadcrumb.store';
 import type { load } from './index.server';
 
 export const routeMeta: RouteMeta = {
@@ -61,6 +62,14 @@ export default class ProductListPageComponent {
   protected readonly data = toSignal(injectLoad<typeof load>(), {
     initialValue: { locale: 'en' as const, products: [] },
   });
+
+  constructor() {
+    // Reuse the header's @@nav.products translation rather than a second,
+    // untranslated literal - breadcrumb labels are set from TS, not a
+    // template, so `$localize` (not the `i18n` attribute) is how they pick
+    // up the runtime-loaded catalog (see provideI18n in app.config.ts).
+    inject(BreadcrumbStore).setTrail([{ label: $localize`:@@nav.products:Products`, link: null }]);
+  }
 
   protected readonly categories: Category[] = ['apparel/shirts', 'apparel/shoes'];
 

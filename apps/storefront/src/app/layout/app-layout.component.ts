@@ -6,6 +6,7 @@ import { injectSwitchLocale } from '@analogjs/router/i18n';
 import { LOCALES, type Locale } from '@analog-ecom-ws/product-schema';
 import { HeaderComponent } from '../components/header.component';
 import { FooterComponent } from '../components/footer.component';
+import { BreadcrumbComponent } from '../components/breadcrumb.component';
 
 // Single shared shell for every /:locale route - header + <router-outlet>
 // + footer. `locale` here is derived from the route (via toSignal), not
@@ -16,12 +17,13 @@ import { FooterComponent } from '../components/footer.component';
 @Component({
   selector: 'app-layout',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterOutlet, HeaderComponent, FooterComponent],
+  imports: [RouterOutlet, HeaderComponent, FooterComponent, BreadcrumbComponent],
   template: `
     <div class="flex min-h-full flex-col bg-background text-foreground">
       <app-header [locale]="locale()" [locales]="locales" (localeChange)="switchLocale($event)" />
 
       <main class="mx-auto w-full max-w-5xl flex-1 px-6 py-10">
+        <app-breadcrumb [locale]="locale()" />
         <router-outlet />
       </main>
 
