@@ -2,11 +2,11 @@ import type { PageServerLoad } from '@analogjs/router';
 import { getProduct } from '@analog-ecom-ws/s3-client';
 import { LOCALES, type Locale, type Product } from '@analog-ecom-ws/product-schema';
 
-export interface ProductDetailData {
+export type ProductDetailData = {
   locale: Locale;
   sku: string;
   product: Product | null;
-}
+};
 
 function isLocale(value: string | undefined): value is Locale {
   return !!value && (LOCALES as readonly string[]).includes(value);

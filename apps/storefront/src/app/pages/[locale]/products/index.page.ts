@@ -11,6 +11,12 @@ import type { load } from './index.server';
 
 export const routeMeta: RouteMeta = {
   title: 'Products',
+  meta: () => [
+    {
+      name: 'description',
+      content: $localize`:@@meta.products.description:Browse the full Analog Goods catalog of shirts and shoes - product details as rendered pages or raw markdown.`,
+    },
+  ],
 };
 
 // Not a search feature (cut from v1 scope, see overall-goals-design.md

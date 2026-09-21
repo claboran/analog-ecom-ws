@@ -8,5 +8,6 @@
   "footer.agents": "Maschinenlesbare Produktdaten",
   "home.heading": "Waren, eingetragen statt abgetragen",
   "home.subheading": "Ein kleiner Katalog aus Shirts und Schuhen, auf Englisch und Deutsch - als Markdown für Agenten und als gerenderte Seite für alle anderen.",
-  "home.cta": "Katalog durchsehen"
+  "home.cta": "Katalog durchsehen",
+  "meta.products.description": "Der komplette Analog-Goods-Katalog mit Shirts und Schuhen - Produktdetails als gerenderte Seite oder als reines Markdown."
 }

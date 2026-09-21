@@ -8,5 +8,6 @@
   "footer.agents": "Machine-readable product data",
   "home.heading": "Goods, worn in, not worn out",
   "home.subheading": "A small catalog of shirts and shoes, in English and German, served as markdown for agents and rendered pages for everyone else.",
-  "home.cta": "Browse the catalog"
+  "home.cta": "Browse the catalog",
+  "meta.products.description": "Browse the full Analog Goods catalog of shirts and shoes - product details as rendered pages or raw markdown."
 }

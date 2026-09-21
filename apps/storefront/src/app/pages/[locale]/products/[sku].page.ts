@@ -35,7 +35,9 @@ export default class ProductDetailPageComponent {
     initialValue: { locale: 'en' as const, sku: '', product: null },
   });
 
-  protected readonly product = computed(() => this.data().product);
+  protected readonly product = computed(
+    () => this.data().product,
+  );
 
   constructor() {
     // effect (not a one-time constructor call) because a client-side nav

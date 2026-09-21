@@ -1,6 +1,7 @@
 import { defineEventHandler, getRequestURL, send } from 'h3';
 import { listProducts } from '@analog-ecom-ws/s3-client';
 import { LOCALES } from '@analog-ecom-ws/product-schema';
+import { buildRobotsTxt } from '../lib/robots-txt';
 
 // Nitro/h3 file-based routes treat a dot before the last segment as an
 // HTTP-method suffix (`.get.ts`), so a literal `llms.txt.ts` /
@@ -28,9 +29,6 @@ const buildLlmsTxt = async (baseUrl: string): Promise<string> =>
         '',
       ],
     ).join('\n') + '\n';
-
-const  buildRobotsTxt = (baseUrl: string): string =>
-  ['User-agent: *', 'Allow: /', '', `Sitemap: ${baseUrl}/sitemap-products.xml`, ''].join('\n');
 
 const  buildProductsSitemap = async (baseUrl: string): Promise<string> => {
   const urls = (await listProducts(LOCALES[0]))

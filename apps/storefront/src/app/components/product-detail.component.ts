@@ -1,10 +1,11 @@
 import { ChangeDetectionStrategy, Component, computed, effect, inject, input } from '@angular/core';
-import { DomSanitizer } from '@angular/platform-browser';
+import { DomSanitizer, Meta } from '@angular/platform-browser';
 import { RouterLink } from '@angular/router';
 import { patchState, signalState } from '@ngrx/signals';
 import type { Locale, Product } from '@analog-ecom-ws/product-schema';
 import { JsonLdDirective } from '../directives/json-ld.directive';
 import { formatPrice } from '../lib/format-price';
+import { META_DESCRIPTION_MAX_LENGTH, productDescription } from '../lib/product-description';
 
 type ProductSelectionState = {
   selectedSize: string | null;
@@ -121,6 +122,7 @@ export class ProductDetailComponent {
   readonly locale = input.required<Locale>();
 
   private readonly sanitizer = inject(DomSanitizer);
+  private readonly meta = inject(Meta);
 
   protected readonly selection = signalState<ProductSelectionState>({
     selectedSize: null,
@@ -137,6 +139,17 @@ export class ProductDetailComponent {
       patchState(this.selection, {
         selectedSize: product.sizes[0] ?? null,
         selectedColor: product.colors[0] ?? null,
+      });
+    });
+
+    // Per-product <meta name="description">. Has to be an effect for the
+    // same reason as the picker reset above (and JsonLdDirective): the
+    // component instance is reused across [sku] navigations. updateTag
+    // replaces an existing description tag rather than appending a second.
+    effect(() => {
+      this.meta.updateTag({
+        name: 'description',
+        content: productDescription(this.product(), META_DESCRIPTION_MAX_LENGTH),
       });
     });
   }
@@ -169,11 +182,7 @@ export class ProductDetailComponent {
       '@type': 'Product',
       sku: product.sku,
       name: product.title,
-      description: product.bodyMarkdown
-        .replace(/^#.*\n+/, '')
-        .replace(/\*\*/g, '')
-        .replace(/\n+/g, ' ')
-        .trim(),
+      description: productDescription(product),
       image: product.images,
       offers: {
         '@type': 'Offer',

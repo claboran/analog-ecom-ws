@@ -5,6 +5,17 @@ import { BreadcrumbStore } from '../../stores/breadcrumb.store';
 
 export const routeMeta: RouteMeta = {
   title: 'Analog Goods',
+  // Reuses the hero subheading's @@home.subheading translation (same
+  // runtime-catalog mechanism as the breadcrumb labels): it's already a
+  // ~130-character summary of the site, so there's no second string to
+  // keep in sync. A resolver rather than a static array because $localize
+  // has to run at navigation time, once the locale's catalog is loaded.
+  meta: () => [
+    {
+      name: 'description',
+      content: $localize`:@@home.subheading:A small catalog of shirts and shoes, in English and German, served as markdown for agents and rendered pages for everyone else.`,
+    },
+  ],
 };
 
 @Component({
