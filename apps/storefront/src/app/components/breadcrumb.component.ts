@@ -1,27 +1,35 @@
 import { ChangeDetectionStrategy, Component, inject, input } from '@angular/core';
-import { RouterLink } from '@angular/router';
+import { HlmBreadcrumbImports } from '@spartan-ng/helm/breadcrumb';
 import type { Locale } from '@analog-ecom-ws/product-schema';
 import { BreadcrumbStore } from '../stores/breadcrumb.store';
 
 // Reads the shared BreadcrumbStore (set by whichever leaf page is active)
 // and prepends Home, so pages only ever describe the segments after it.
-// Hidden entirely on the landing page, where the trail is empty.
+// Hidden entirely on the landing page, where the trail is empty. The markup
+// and a11y semantics (navigation landmark, aria-current on the last crumb,
+// decorative separators) come from spartan's breadcrumb primitives.
 @Component({
   selector: 'app-breadcrumb',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink],
+  imports: [HlmBreadcrumbImports],
   template: `
     @if (store.trail().length > 0) {
-      <nav class="mb-6 flex items-center gap-1.5 text-sm text-muted-foreground" aria-label="Breadcrumb">
-        <a [routerLink]="['/', locale()]" class="hover:text-foreground" i18n="@@nav.home">Home</a>
-        @for (item of store.trail(); track item.label) {
-          <span aria-hidden="true">/</span>
-          @if (item.link) {
-            <a [routerLink]="item.link" class="hover:text-foreground">{{ item.label }}</a>
-          } @else {
-            <span class="text-foreground" aria-current="page">{{ item.label }}</span>
+      <nav hlmBreadcrumb class="mb-6">
+        <ol hlmBreadcrumbList>
+          <li hlmBreadcrumbItem>
+            <a hlmBreadcrumbLink [link]="['/', locale()]" i18n="@@nav.home">Home</a>
+          </li>
+          @for (item of store.trail(); track item.label) {
+            <li hlmBreadcrumbSeparator></li>
+            <li hlmBreadcrumbItem>
+              @if (item.link) {
+                <a hlmBreadcrumbLink [link]="item.link">{{ item.label }}</a>
+              } @else {
+                <span hlmBreadcrumbPage>{{ item.label }}</span>
+              }
+            </li>
           }
-        }
+        </ol>
       </nav>
     }
   `,

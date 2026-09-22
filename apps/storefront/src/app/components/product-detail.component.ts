@@ -2,6 +2,9 @@ import { ChangeDetectionStrategy, Component, computed, effect, inject, input } f
 import { DomSanitizer, Meta } from '@angular/platform-browser';
 import { RouterLink } from '@angular/router';
 import { patchState, signalState } from '@ngrx/signals';
+import { HlmBadge } from '@spartan-ng/helm/badge';
+import { HlmButton } from '@spartan-ng/helm/button';
+import { HlmToggleGroupImports } from '@spartan-ng/helm/toggle-group';
 import type { Locale, Product } from '@analog-ecom-ws/product-schema';
 import { JsonLdDirective } from '../directives/json-ld.directive';
 import { formatPrice } from '../lib/format-price';
@@ -43,10 +46,10 @@ type ProductSelectionState = {
 @Component({
   selector: 'app-product-detail',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink, JsonLdDirective],
+  imports: [RouterLink, JsonLdDirective, HlmButton, HlmBadge, HlmToggleGroupImports],
   template: `
     <div [appJsonLd]="jsonLd()">
-      <a routerLink=".." class="text-sm text-muted-foreground hover:text-foreground">&larr; Back to products</a>
+      <a hlmBtn variant="ghost" size="sm" routerLink="..">&larr; Back to products</a>
 
       <div class="mt-6 grid grid-cols-1 gap-10 md:grid-cols-2">
         <img
@@ -58,56 +61,52 @@ type ProductSelectionState = {
         />
 
         <div>
-          <p class="text-sm text-muted-foreground">{{ product().category.split('/')[1] }}</p>
-          <h1 class="mt-1 text-3xl font-semibold tracking-tight">{{ product().title }}</h1>
+          <span hlmBadge variant="secondary">{{ product().category.split('/')[1] }}</span>
+          <h1 class="mt-2 text-3xl font-semibold tracking-tight">{{ product().title }}</h1>
           <p class="mt-3 text-xl">{{ price() }}</p>
 
-          <span
-            class="mt-4 inline-block rounded-full px-3 py-1 text-xs font-medium"
-            [class.bg-brand-accent]="product().stock > 0"
-            [class.text-brand-accent-foreground]="product().stock > 0"
-            [class.bg-muted]="product().stock === 0"
-            [class.text-muted-foreground]="product().stock === 0"
-          >
-            {{ product().stock > 0 ? 'In stock' : 'Out of stock' }}
-          </span>
+          @if (product().stock > 0) {
+            <!-- brand-accent is the one-off badge color (see styles.css); classes
+                 merge over the badge variant via tailwind-merge. -->
+            <span hlmBadge class="mt-4 bg-brand-accent text-brand-accent-foreground">In stock</span>
+          } @else {
+            <span hlmBadge variant="secondary" class="mt-4 text-muted-foreground">Out of stock</span>
+          }
 
           <div class="mt-6 grid grid-cols-2 gap-6 text-sm">
             <div>
               <p class="text-muted-foreground">Size</p>
-              <div class="mt-2 flex flex-wrap gap-1.5">
+              <hlm-toggle-group
+                class="mt-2 flex-wrap"
+                type="single"
+                variant="outline"
+                size="sm"
+                aria-label="Size"
+                [nullable]="false"
+                [value]="selection.selectedSize()"
+                (valueChange)="selectSize($event)"
+              >
                 @for (size of product().sizes; track size) {
-                  <button
-                    type="button"
-                    class="rounded-md border px-2.5 py-1 text-xs font-medium transition-colors"
-                    [class.border-primary]="selection.selectedSize() === size"
-                    [class.bg-primary]="selection.selectedSize() === size"
-                    [class.text-primary-foreground]="selection.selectedSize() === size"
-                    [class.border-border]="selection.selectedSize() !== size"
-                    (click)="selectSize(size)"
-                  >
-                    {{ size }}
-                  </button>
+                  <button hlmToggleGroupItem [value]="size">{{ size }}</button>
                 }
-              </div>
+              </hlm-toggle-group>
             </div>
             <div>
               <p class="text-muted-foreground">Color</p>
-              <div class="mt-2 flex flex-wrap gap-1.5">
+              <hlm-toggle-group
+                class="mt-2 flex-wrap"
+                type="single"
+                variant="outline"
+                size="sm"
+                aria-label="Color"
+                [nullable]="false"
+                [value]="selection.selectedColor()"
+                (valueChange)="selectColor($event)"
+              >
                 @for (color of product().colors; track color) {
-                  <button
-                    type="button"
-                    class="rounded-md border px-2.5 py-1 text-xs font-medium transition-colors"
-                    [class.border-primary]="selection.selectedColor() === color"
-                    [class.bg-primary]="selection.selectedColor() === color"
-                    [class.text-primary-foreground]="selection.selectedColor() === color"
-                    [class.border-border]="selection.selectedColor() !== color"
-                    (click)="selectColor(color)"
-                  >
-                    {{ color }}
-                  </button>
+                  <button hlmToggleGroupItem [value]="color">{{ color }}</button>
                 }
-              </div>
+              </hlm-toggle-group>
             </div>
           </div>
 
@@ -157,12 +156,20 @@ export class ProductDetailComponent {
   // The "let the user override afterward" half - independent of
   // `product()`, kept until the effect above resets it on the next
   // product change.
-  protected selectSize(size: string): void {
-    patchState(this.selection, { selectedSize: size });
+  // The toggle group emits an untyped ToggleValue. Both groups are
+  // single-select with [nullable]="false" (the brain default is nullable, so
+  // re-clicking the selected item would otherwise clear it and leave the UI
+  // out of sync with this state); anything but a string is ignored anyway.
+  protected selectSize(size: unknown): void {
+    if (typeof size === 'string') {
+      patchState(this.selection, { selectedSize: size });
+    }
   }
 
-  protected selectColor(color: string): void {
-    patchState(this.selection, { selectedColor: color });
+  protected selectColor(color: unknown): void {
+    if (typeof color === 'string') {
+      patchState(this.selection, { selectedColor: color });
+    }
   }
 
   protected readonly price = computed(() => formatPrice(this.product().price, this.locale()));

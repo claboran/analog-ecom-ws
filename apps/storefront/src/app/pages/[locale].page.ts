@@ -1,7 +1,7 @@
 import { inject } from '@angular/core';
 import { Router, type CanActivateFn } from '@angular/router';
 import type { RouteMeta } from '@analogjs/router';
-import { LOCALES } from '@analog-ecom-ws/product-schema';
+import { LOCALES } from '@analog-ecom-ws/product-schema/locales';
 
 // Analog's [locale] segment doesn't reject unsupported values on its own
 // (overall-goals-design.md §7's "Guard note") - without this, any unknown

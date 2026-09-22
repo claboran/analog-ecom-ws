@@ -5,6 +5,13 @@
 
 @import "@spartan-ng/brain/hlm-tailwind-preset.css";
 
+/* The spartan helm components are copied into libs/ui (outside this app), so
+   Tailwind's automatic source detection wouldn't otherwise see their class
+   names. Path is relative to this file. Must stay below every @import:
+   CSS ignores @import rules that follow other rules, which silently drops
+   the spartan preset. */
+@source "../../../libs/ui";
+
 /* brand-accent isn't part of spartan's own preset mapping above, so it
    needs its own @theme registration to become usable as bg-brand-accent /
    text-brand-accent-foreground utilities. Deliberately not added to
@@ -64,6 +71,12 @@ color-scheme: light;
 --sidebar-ring: oklch(0.708 0 0);
 }
 
+/* Spartan's helm preset redefines Tailwind's `dark:` variant as
+   `&:is(.dark *)` (class-based, not prefers-color-scheme) - see
+   hlm-tailwind-preset.css - and hlm-button/hlm-badge/hlm-toggle use `dark:`
+   utilities directly. So variables here stay keyed off `.dark` too, kept in
+   sync with the OS preference by the inline script in index.html rather
+   than a user-facing toggle (see README discussion). */
 :root.dark {
 color-scheme: dark;
 

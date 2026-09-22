@@ -1,5 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
 import { RouterLink } from '@angular/router';
+import { HlmBadge } from '@spartan-ng/helm/badge';
+import { HlmCardImports } from '@spartan-ng/helm/card';
 import type { Locale, Product } from '@analog-ecom-ws/product-schema';
 import { formatPrice } from '../lib/format-price';
 
@@ -12,11 +14,12 @@ import { formatPrice } from '../lib/format-price';
 @Component({
   selector: 'app-product-card',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink],
+  imports: [RouterLink, HlmCardImports, HlmBadge],
   template: `
     <a
+      hlmCard
       [routerLink]="[product().sku]"
-      class="block overflow-hidden rounded-lg border border-border transition-colors hover:border-primary"
+      class="h-full transition-shadow hover:ring-2 hover:ring-primary"
     >
       <img
         [src]="product().images[0]"
@@ -25,10 +28,10 @@ import { formatPrice } from '../lib/format-price';
         width="640"
         height="640"
       />
-      <div class="p-4">
-        <p class="text-xs text-muted-foreground">{{ product().category.split('/')[1] }}</p>
-        <h2 class="mt-1 font-medium">{{ product().title }}</h2>
-        <p class="mt-1 text-sm text-muted-foreground">{{ price() }}</p>
+      <div hlmCardContent class="flex flex-col items-start gap-2">
+        <span hlmBadge variant="secondary">{{ product().category.split('/')[1] }}</span>
+        <h2 hlmCardTitle>{{ product().title }}</h2>
+        <p class="text-sm text-muted-foreground">{{ price() }}</p>
       </div>
     </a>
   `,

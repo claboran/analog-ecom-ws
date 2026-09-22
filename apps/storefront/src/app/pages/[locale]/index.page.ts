@@ -1,6 +1,8 @@
 import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import type { RouteMeta } from '@analogjs/router';
+import { HlmButton } from '@spartan-ng/helm/button';
+import { HlmCardImports } from '@spartan-ng/helm/card';
 import { BreadcrumbStore } from '../../stores/breadcrumb.store';
 
 export const routeMeta: RouteMeta = {
@@ -21,7 +23,7 @@ export const routeMeta: RouteMeta = {
 @Component({
   selector: 'app-landing',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink],
+  imports: [RouterLink, HlmButton, HlmCardImports],
   template: `
     <section class="flex flex-col items-start gap-6">
       <h1 class="max-w-xl text-4xl font-semibold tracking-tight text-balance" i18n="@@home.heading">
@@ -31,30 +33,26 @@ export const routeMeta: RouteMeta = {
         A small catalog of shirts and shoes, in English and German, served as markdown for agents and
         rendered pages for everyone else.
       </p>
-      <a
-        routerLink="products"
-        class="rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90"
-        i18n="@@home.cta"
-      >
-        Browse the catalog
-      </a>
+      <a hlmBtn size="lg" routerLink="products" i18n="@@home.cta">Browse the catalog</a>
     </section>
 
     @defer (on viewport) {
       <section class="mt-16 grid grid-cols-1 gap-4 sm:grid-cols-2">
         <a
+          hlmCard
           routerLink="products"
           [queryParams]="{ category: 'apparel/shirts' }"
-          class="rounded-lg border border-border p-6 transition-colors hover:border-primary"
+          class="transition-shadow hover:ring-2 hover:ring-primary"
         >
-          <h2 class="text-lg font-medium">Shirts</h2>
+          <div hlmCardHeader><h2 hlmCardTitle>Shirts</h2></div>
         </a>
         <a
+          hlmCard
           routerLink="products"
           [queryParams]="{ category: 'apparel/shoes' }"
-          class="rounded-lg border border-border p-6 transition-colors hover:border-primary"
+          class="transition-shadow hover:ring-2 hover:ring-primary"
         >
-          <h2 class="text-lg font-medium">Shoes</h2>
+          <div hlmCardHeader><h2 hlmCardTitle>Shoes</h2></div>
         </a>
       </section>
     } @placeholder {

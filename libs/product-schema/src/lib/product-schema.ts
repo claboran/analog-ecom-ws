@@ -1,10 +1,5 @@
 import { z } from 'zod';
-
-export const LOCALES = ['en', 'de'] as const;
-export type Locale = (typeof LOCALES)[number];
-
-export const CATEGORIES = ['apparel/shirts', 'apparel/shoes'] as const;
-export type Category = (typeof CATEGORIES)[number];
+import { CATEGORIES, LOCALES, type Locale } from './locales';
 
 // Frontmatter contract for one product/locale markdown object
 // (s3://products/<sku>/<locale>.md). See overall-goals-design.md §5.

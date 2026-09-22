@@ -21,8 +21,32 @@
       "@analog-ecom-ws/product-schema": [
         "./libs/product-schema/src/index.ts"
       ],
+      "@analog-ecom-ws/product-schema/locales": [
+        "./libs/product-schema/src/lib/locales.ts"
+      ],
       "@analog-ecom-ws/s3-client": [
         "./libs/s3-client/src/index.ts"
+      ],
+      "@spartan-ng/helm/button": [
+        "./libs/ui/button/src/index.ts"
+      ],
+      "@spartan-ng/helm/utils": [
+        "./libs/ui/utils/src/index.ts"
+      ],
+      "@spartan-ng/helm/badge": [
+        "./libs/ui/badge/src/index.ts"
+      ],
+      "@spartan-ng/helm/card": [
+        "./libs/ui/card/src/index.ts"
+      ],
+      "@spartan-ng/helm/breadcrumb": [
+        "./libs/ui/breadcrumb/src/index.ts"
+      ],
+      "@spartan-ng/helm/toggle-group": [
+        "./libs/ui/toggle-group/src/index.ts"
+      ],
+      "@spartan-ng/helm/toggle": [
+        "./libs/ui/toggle/src/index.ts"
       ]
     }
   },

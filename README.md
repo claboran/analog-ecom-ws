@@ -23,7 +23,7 @@ or real persistence — see [Non-goals](#non-goals).
 **Used together, the way a real project would:** AnalogJS 2.7 (SSR, i18n,
 `.server.ts` load functions, Nitro/h3 middleware), modern Angular 22
 (standalone components, `OnPush` everywhere, `@defer`, signal inputs),
-NgRx Signals, Zod, Tailwind v4 with spartan.ng's theme preset, and a small
+NgRx Signals, Zod, Tailwind v4 with [spartan.ng](https://spartan.ng) components, and a small
 NestJS CLI in the same Nx workspace.
 
 ## The main goal
@@ -115,6 +115,68 @@ curl http://localhost:3000/robots.txt            # explicit rules per bot class
 **View source on a product page** and you'll also find a `schema.org`
 `Product` JSON-LD block and a `<meta name="description">` in the `<head>`,
 both built from the same parsed product data the page renders.
+
+## Lighthouse: 100/100/100/100, and 3/3 on Agentic Browsing
+
+![Chrome Lighthouse report for /de/products/TS-BLK-001: Performance 100, Accessibility 100, Best Practices 100, SEO 100, and a green 3/3 on the Agentic Browsing category. Performance metrics: First Contentful Paint 0.6s, Largest Contentful Paint 0.7s, Total Blocking Time 0ms, Cumulative Layout Shift 0, Speed Index 0.6s.](./images/lighthouse.png)
+
+That's a cold Lighthouse run against the product detail page, unthrottled
+build, nothing special staged for the audit — the same production build
+`npm start` serves. Worth showing because none of it is a coincidence; it
+falls out of specific decisions made elsewhere in this README, not a
+separate "make Lighthouse happy" pass:
+
+- **Performance (100, CLS 0, TBT 0ms).** SSR + `provideClientHydration()`
+  means the browser gets real, painted HTML on the first response instead
+  of an empty shell waiting for JS — that's most of the 0.6s FCP right
+  there. [`OnPush` everywhere](#ui-architecture) plus
+  [explicit zoneless change detection](#ui-architecture) keep the runtime
+  from doing speculative work on every event. Every `<img>` (product cards,
+  product detail) carries explicit `width`/`height` attributes, so the
+  browser reserves layout space before the image loads — that's the `0`
+  CLS, not luck. And the [barrel-export bug that was quietly shipping Zod
+  to the browser](#lessons-learned) is exactly the kind of thing that
+  erodes this number silently over time if nobody looks at built chunk
+  sizes; it's fixed now, but it's a good example of how a 100 doesn't stay
+  a 100 on its own.
+- **Accessibility (100).** Comes mostly for free from
+  [spartan.ng's `brain` primitives](#spartanng-components) doing the
+  unglamorous work: the toggle groups (locale/size/color pickers) get
+  roving keyboard focus and pressed-state semantics instead of a `<div
+  (click)>` soup, and the breadcrumb renders as a real `nav` landmark with
+  `aria-current` on the active crumb and `aria-hidden` separators. Every
+  product image has a real `[alt]` (bound to the product title, not a
+  static placeholder) — small, but it's the kind of thing that's easy to
+  skip on a demo and didn't get skipped here.
+- **Best Practices (100) / SEO (100).** Structured data and metadata are
+  generated from the same parsed product object the page renders — see
+  [Structured data & SEO](#structured-data--seo) — so there's no separate,
+  driftable "SEO version" of the content to get out of sync. The
+  [locale guard](#i18n) exists specifically because an earlier Lighthouse
+  SEO audit caught unknown paths like `/robots.txt` rendering as a bogus
+  locale page — this repo's SEO 100 already survived one real regression.
+- **Agentic Browsing (3/3).** This is a newer Lighthouse category
+  (shipped in Lighthouse 13.3, May 2026) that scores a page not against a
+  human visitor but against an *agent* trying to read and act on it — it
+  checks for an `llms.txt`, WebMCP tool definitions, the quality of the
+  accessibility tree (which is the data model an agent actually sees), and
+  layout stability, and reports a pass ratio rather than a 0–100 score.
+  This repo passes all 3 *applicable* checks: [`llms.txt` is served at the
+  root](#serving-markdown-to-agents), the accessibility tree is clean (the
+  same primitives and labeling behind the Accessibility 100 above), and
+  CLS is 0. It's 3/3 and not 4/4 because the fourth check, WebMCP, isn't
+  wired up here — see [Not built (yet)](#not-built-yet) for the
+  considered, not-yet-implemented cart/WebMCP idea.
+
+**Why this belongs in this README specifically:** the whole premise of this
+repo is that a storefront can be genuinely legible to an agent — served
+markdown, `llms.txt`, structured data — without that being bolted on as a
+separate pipeline. Lighthouse shipping a category that measures exactly
+that claim, from an external, vendor-neutral tool rather than this
+project's own say-so, is about as close to independent validation of the
+thesis as a showcase repo can get. A11y/SEO/Performance scores would matter
+for any app; the Agentic Browsing score is the one that's actually *about*
+what this repo is trying to prove.
 
 ## How it works
 
@@ -264,6 +326,15 @@ today, so it stays where it is ("use before reuse").
   the one shell component, so co-location keeps it in one place.
 - **`OnPush` on every component**, standalone throughout. The landing page
   uses one `@defer (on viewport)` block for its secondary section.
+- **Zoneless**, explicitly. `provideZonelessChangeDetection()` in
+  `app.config.ts` — `zone.js` was never actually a dependency (not in
+  `package.json`, not in `node_modules`; only a peer-dependency mention in
+  the lockfile), so the app was already running on Angular's implicit
+  no-zone fallback. Declaring it turns that into the real zoneless
+  scheduler instead, which is what the OnPush/signals architecture here was
+  already built for. No bundle-size change from this (`zone.js` was never
+  shipped either way) — this is a correctness/explicitness fix, not a
+  size one.
 - **State is as small as it can be.** Almost everything is a plain
   `computed()` derived from the loaded product. The size/color picker on
   the detail page is the one place with genuinely *owned* local state, so it
@@ -275,6 +346,52 @@ today, so it stays where it is ("use before reuse").
   no global app state — no cart, no auth.
 - **No `rxMethod`.** Search was cut from scope, which left no debounced
   input for it to serve, and it isn't worth adding just to tick a box.
+
+### spartan.ng components
+
+spartan splits each component into a headless **brain** primitive (behaviour
+and accessibility, from `@spartan-ng/brain`) and a **helm** layer (Tailwind
+styling) that the CLI *copies into your repo* instead of shipping as a
+dependency. Here the helm code lives in `libs/ui/<primitive>` (config in
+`components.json`), imported as `@spartan-ng/helm/<primitive>`, and is ours
+to edit. Five primitives are used, each replacing hand-written markup:
+
+| Primitive | Used for |
+|---|---|
+| `button` | landing call-to-action, "Back to products" (`hlmBtn` on `<a>`) |
+| `card` | product cards, landing category tiles (`hlmCard` on `<a>`) |
+| `badge` | category label, stock status |
+| `breadcrumb` | the trail rendered by `BreadcrumbStore` (nav landmark, `aria-current`, decorative separators) |
+| `toggle-group` | locale switcher, size picker, color picker |
+
+The size/color pickers are the interesting one: a single-select toggle
+group gives roving keyboard focus and pressed-state semantics that the old
+hand-styled buttons didn't have, and it binds straight to the existing
+`signalState` selection. Two local edits to the copied code: selected items
+are filled with the primary color (the stock "on" state was too faint on
+this background), and the stock badge's brand-accent color is applied as a
+plain `class` override, which spartan merges over the variant with
+`tailwind-merge`.
+
+**Discussion: is this heavier than shadcn/daisyUI?** At the code level, no
+— spartan's CLI copies plain source files into your repo exactly like
+`npx shadcn add button`; you own and edit them from there, not a package
+you `npm update`. `libs/ui/button`'s actual code is two small files,
+`hlm-button.ts` and `hlm-button.token.ts`. What *is* heavier here is
+packaging, not philosophy: `components.json` has `"generateAs": "library"`,
+so in this Nx workspace the CLI wraps every copied primitive in a full Nx
+library — `project.json`, `tsconfig.json`, `tsconfig.lib.json`,
+`eslint.config.mjs`, `README.md` — per component, on top of those one or
+two source files. That buys independent lint/build targets and
+tree-shakeable, path-mapped imports (`@spartan-ng/helm/<primitive>` via
+`tsconfig.base.json`) if the workspace ever wants per-component Nx
+targets; for a single app like this one, it's ceremony this repo doesn't
+exploit. `components.json` also supports `"generateAs": "directory"`,
+which drops the Nx-library scaffold and just places files under
+`libs/ui/<name>` — closer to shadcn's flat-file feel. Not switched here
+because it wasn't worth the churn on an already-generated set of
+components, but it's the knob to reach for if the current structure feels
+like more than the workspace needs.
 
 ### Routes
 
@@ -324,7 +441,8 @@ apps/
     src/app/
       pages/                 file-based routes (see below)
       components/            presentational components (Header, Footer,
-                              Breadcrumb, ProductCard, ProductDetail)
+                              Breadcrumb, ProductCard, ProductDetail),
+                              built on the spartan components in libs/ui
       layout/                AppLayoutComponent - the shared shell
       directives/            JsonLdDirective
       stores/                BreadcrumbStore
@@ -344,7 +462,11 @@ libs/
   s3-client/               The one shared S3 fetch/parse function - every
                             consumer above (pages, negotiation, llms.txt,
                             sitemap) calls the same getProduct/listProducts
+  ui/                      spartan.ng helm components, copied in by the
+                            spartan CLI (button, card, badge, breadcrumb,
+                            toggle-group + shared utils) - one Nx lib each
 
+components.json           spartan CLI config (where helm code goes, style)
 docker-compose.yml        S3Mock, the only external dependency
 ```
 
@@ -368,7 +490,7 @@ server-side, before the page renders.
 |---|---|
 | Monorepo | Nx workspace |
 | Meta-framework | [AnalogJS](https://analogjs.org) 2.7 (Angular 22, Vite, Nitro/h3) |
-| Styling | Tailwind v4, using [spartan.ng](https://spartan.ng)'s `hlm-tailwind-preset` for design tokens (components are hand-written; no brain/helm primitives yet) |
+| Components & styling | [spartan.ng](https://spartan.ng) (`brain` headless primitives + copy-owned `helm` styling, in `libs/ui`) on Tailwind v4, themed through spartan's `hlm-tailwind-preset` |
 | State | `@ngrx/signals` — `signalState` for owned local state, `signalStore` for the breadcrumb trail; plain `computed()` for everything derived |
 | Schema/validation | Zod, shared between the ingest CLI and the storefront |
 | i18n | AnalogJS's native runtime i18n (`provideI18n`, `[locale]` route segment) |
@@ -398,10 +520,22 @@ several of these tools are used together.
   `extends` chain, and Nitro (which runs `.server.ts` load functions and
   middleware) has an entirely separate resolution pipeline that ignores
   Vite's `resolve.alias`. Fix: explicit aliases for both workspace libs,
-  given to Vite *and* repeated under `analog({ nitro: { alias } })`.
+  given to Vite *and* repeated under `analog({ nitro: { alias } })`. The
+  spartan helm libs hit the same wall (`@spartan-ng/helm/*` failed in SSR
+  despite correct `tsconfig` paths); one pattern alias in `vite.config.ts`
+  covers all of them (Vite only — Nitro never imports components).
 - **Nx's default `appsDir` is the workspace root.** Without setting
   `workspaceLayout` in `nx.json` *before* generating, Analog's generator
   scaffolds at the root instead of under `apps/`.
+- **Two spartan/Tailwind traps.** (1) Tailwind v4 only auto-scans the app,
+  so the copied helm classes in `libs/ui` need an explicit
+  `@source "../../../libs/ui"` in `styles.css` — and it must sit *below*
+  every `@import`: CSS ignores `@import` rules that follow other rules, so
+  placed above the spartan preset import it silently drops the preset and
+  fails with a confusing `Cannot apply unknown utility class border-border`.
+  (2) A toggle group's `nullable` input defaults to `true`, so re-clicking
+  the selected size deselected it and left the UI out of sync with the
+  `signalState` behind it; the pickers set `[nullable]="false"`.
 - **Angular strips literal `<script>` elements from templates** — even
   static ones — so JSON-LD has to be written through `Renderer2`.
 - **A page can't have both a component and `redirectTo`.** Analog's
@@ -413,6 +547,46 @@ several of these tools are used together.
   dependency needing the JIT compiler, which gets tree-shaken out of the
   production server bundle). Tried, reverted, and rendered with `marked`
   instead.
+- **Dark mode CSS existed but was never activated.** `styles.css` had a
+  full `:root.dark { ... }` variable set from the start, but nothing ever
+  added a `dark` class anywhere, and no `@media (prefers-color-scheme)`
+  fallback existed either — so the app was permanently light. Complicating
+  a "just use a media query" fix: spartan's `hlm-tailwind-preset.css`
+  redefines Tailwind's `dark:` variant as `@custom-variant dark
+  (&:is(.dark *))` — class-based, not `prefers-color-scheme` — and three
+  helm components (`hlm-button`, `hlm-badge`, `hlm-toggle`) use `dark:`
+  utilities directly. So the CSS variables have to stay keyed off `.dark`
+  too. Fixed with a small inline script in `index.html`, run before first
+  paint, that sets `.dark` on `<html>` from
+  `matchMedia('(prefers-color-scheme: dark)')` and keeps it in sync on
+  change — OS-driven, no manual toggle in the UI.
+- **A barrel export silently shipped Zod to the browser.** A production
+  build showed `_locale_.page-*.js` — the shared layout chunk loaded on
+  *every* route — at 99.5 kB / 29.4 kB gzip, disproportionate for a
+  component that just renders header/breadcrumb/footer. `libs/product-schema`
+  exports both plain constants (`LOCALES`) and Zod schemas from one barrel
+  (`export * from './lib/product-schema'` in `index.ts`), and that file
+  does `import { z } from 'zod'` at module scope. `AppLayoutComponent` and
+  `[locale].page.ts` only ever value-import `LOCALES` — everything else
+  they take from that module is `import type`, which erases — but because
+  a bundler can't prove `z.object(...)` calls are side-effect-free, the
+  barrel re-export pulled in the whole Zod schema graph anyway, and this
+  build's Rollup config didn't shake it back out even after `LOCALES` was
+  moved to its own zod-free file (`libs/product-schema/src/lib/locales.ts`)
+  — the barrel indirection alone was enough to defeat tree-shaking here.
+  Confirmed the mechanism empirically: importing that file by a direct
+  relative path (bypassing the barrel entirely) shrank the chunk to
+  12.5 kB / 4.6 kB gzip and removed every trace of Zod (`ZodError`,
+  `ZodObject`, …) from the build output. Fixed properly with a second path
+  alias, `@analog-ecom-ws/product-schema/locales` (in both
+  `tsconfig.base.json` and `vite.config.ts`'s `workspaceLibAliases`,
+  ordered before the bare specifier), so the two client call sites resolve
+  straight to the zod-free file without a relative-path escape hatch.
+  Net: ~87 kB raw / ~25 kB gzip off every route's initial load. Worth
+  remembering generally: a barrel that mixes side-effecting and pure
+  exports can force-include the side-effecting half even when only the
+  pure half is imported as a value — measure with the actual built output,
+  not just source-level `import type` discipline.
 - **S3Mock fails quiet.** The deprecated bucket env var creates no bucket
   and reports no error (see [Local infrastructure](#local-infrastructure)).
   It only showed up by querying the running container, not by the code
@@ -450,7 +624,6 @@ S3Mock throughout its build, not by a test suite.
   still a stretch goal, not attempted.
 - **A `<link rel="alternate" type="text/markdown">` hint** on rendered
   product pages, pointing at the `.md` route.
-- **spartan.ng components.** Only its Tailwind theme preset is in use so far.
 
 A fake (client-only, no backend) cart is also being considered — not for
 the cart itself, but to give

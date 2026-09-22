@@ -3,7 +3,7 @@ import { toSignal } from '@angular/core/rxjs-interop';
 import { RouterOutlet, ActivatedRoute } from '@angular/router';
 import { map } from 'rxjs';
 import { injectSwitchLocale } from '@analogjs/router/i18n';
-import { LOCALES, type Locale } from '@analog-ecom-ws/product-schema';
+import { LOCALES, type Locale } from '@analog-ecom-ws/product-schema/locales';
 import { HeaderComponent } from '../components/header.component';
 import { FooterComponent } from '../components/footer.component';
 import { BreadcrumbComponent } from '../components/breadcrumb.component';

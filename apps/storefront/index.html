@@ -2,6 +2,23 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
+    <!-- Dark mode follows the OS preference only, no manual toggle (see
+         README). This runs before first paint to avoid a flash, and keeps
+         listening so a live OS theme change is reflected without reload.
+         The `.dark` class is what both styles.css and spartan's helm
+         `dark:` utilities key off. -->
+    <script>
+      (function () {
+        var mql = window.matchMedia('(prefers-color-scheme: dark)');
+        var apply = function (matches) {
+          document.documentElement.classList.toggle('dark', matches);
+        };
+        apply(mql.matches);
+        mql.addEventListener('change', function (e) {
+          apply(e.matches);
+        });
+      })();
+    </script>
     <title>storefront</title>
     <base href="/" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
