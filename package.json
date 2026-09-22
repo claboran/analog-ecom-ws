@@ -12,7 +12,8 @@
     "storefront:start": "npm run storefront:build && node dist/apps/storefront/analog/server/index.mjs",
     "setup": "npm run docker:up && npm run seed",
     "dev": "npm run setup && npm run storefront:dev",
-    "start": "npm run setup && npm run storefront:start"
+    "start": "npm run setup && npm run storefront:start",
+    "measure:tokens": "node scripts/measure-tokens.mjs"
   },
   "private": true,
   "devDependencies": {
@@ -49,6 +50,7 @@
     "angular-eslint": "^22.1.0",
     "eslint": "^9.8.0",
     "eslint-config-prettier": "^10.0.0",
+    "gpt-tokenizer": "^4.0.0",
     "jsdom": "^22.0.0",
     "nx": "23.2.1",
     "tslib": "^2.3.0",

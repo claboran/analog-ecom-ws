@@ -116,6 +116,65 @@ curl http://localhost:3000/robots.txt            # explicit rules per bot class
 `Product` JSON-LD block and a `<meta name="description">` in the `<head>`,
 both built from the same parsed product data the page renders.
 
+## Measured: HTML vs. markdown, in tokens
+
+"An agent gets markdown instead of HTML" is a claim about token cost, so it
+should be measured as one instead of just asserted. `scripts/measure-tokens.mjs`
+fetches the same product detail URL both ways from a running instance and
+counts tokens with [`gpt-tokenizer`](https://www.npmjs.com/package/gpt-tokenizer)
+against two real encodings (`cl100k_base` — GPT-3.5/4 — and `o200k_base` —
+GPT-4o and newer). Reproduce it against your own running server:
+
+```sh
+npm start                       # or npm run dev, in another terminal
+npm run measure:tokens          # defaults to http://localhost:4200
+npm run measure:tokens -- http://localhost:3000
+```
+
+Measured against a production build (`npm start`), `/products/TS-BLK-001`, both locales:
+
+| Variant | Bytes | Chars | Tokens (cl100k_base) | Tokens (o200k_base / gpt-4o) |
+|---|---:|---:|---:|---:|
+| en — rendered HTML (raw response) | 28,517 | 28,511 | 7,739 | 7,739 |
+| en — HTML, tags stripped (naive scrape) | 494 | 490 | 110 | 110 |
+| en — markdown (`.md` route) | 506 | 506 | 158 | 158 |
+| de — rendered HTML (raw response) | 28,687 | 28,657 | 7,799 | 7,799 |
+| de — HTML, tags stripped (naive scrape) | 546 | 537 | 127 | 127 |
+| de — markdown (`.md` route) | 536 | 532 | 168 | 168 |
+
+Two different comparisons worth pulling apart here, because they tell
+different stories:
+
+- **Raw HTML response vs. markdown response: ~49x fewer tokens** (7,739 →
+  158, `en`). This is the honest worst case for an agent that just does
+  `fetch()` and hands the body to a model with no extraction step —
+  Angular's hydration payload, inlined styles, and script tags are most of
+  those 7,739 tokens, and none of it is product information. Content
+  negotiation ([Serving markdown to agents](#serving-markdown-to-agents))
+  means an agent never has to pay that cost or do that extraction — same
+  URL, `Accept: text/markdown`, straight to the 158.
+- **HTML with tags stripped (naive scrape) vs. markdown: markdown is
+  *larger*** (158 vs. 110 tokens, `en`) — the one place the numbers don't
+  favor markdown outright, and worth stating plainly rather than picking
+  the comparison that flatters the repo. The reason is what's *in* each:
+  the stripped-HTML column is only what's visually rendered (title, price,
+  description prose). The markdown response is the complete source file —
+  frontmatter and all — so it also carries `sku`, `stock`, `sizes`,
+  `colors`, `category`, `images`, `updatedAt`: structured, typed fields
+  that were never rendered as visible text at all, and that a scraper
+  would otherwise have to re-infer from page markup (with no guarantee of
+  getting `stock: 42` right, versus reading it as an actual field). The
+  ~44% extra tokens buy strictly more information, already structured,
+  guaranteed to match [the Zod-validated
+  source](#product-content-model) — not the same information paid for
+  twice.
+
+The tags-stripped column is a crude regex extraction (script/style/comment
+stripping + whitespace collapse), not a real readability implementation —
+good enough to establish the order of magnitude, not a precise baseline.
+Numbers will drift slightly release to release as dependencies update; the
+script exists so re-measuring is a command, not a rewrite.
+
 ## Lighthouse: 100/100/100/100, and 3/3 on Agentic Browsing
 
 ![Chrome Lighthouse report for /de/products/TS-BLK-001: Performance 100, Accessibility 100, Best Practices 100, SEO 100, and a green 3/3 on the Agentic Browsing category. Performance metrics: First Contentful Paint 0.6s, Largest Contentful Paint 0.7s, Total Blocking Time 0ms, Cumulative Layout Shift 0, Speed Index 0.6s.](./images/lighthouse.png)
@@ -317,6 +376,61 @@ today, so it stays where it is ("use before reuse").
 - **Currency** is fixed to EUR for both locales — no fake exchange rate —
   but still goes through `Intl.NumberFormat` so `en` renders `€29.90` and
   `de` renders `29,90 €`.
+
+**Discussion: runtime vs. build-time localization.** Worth being precise
+about what "build-time" means here, because it's really two different
+mechanisms that get conflated:
+
+- **Angular CLI's classic i18n** (`ng build --localize`) compiles a
+  *separate application bundle per locale*: `$localize` messages get
+  swapped for their translations at compile time, and the output is N
+  distinct, self-contained bundles with zero i18n runtime machinery in any
+  of them — no JSON fetch, no locale lookup, nothing to get out of sync at
+  request time.
+- **AnalogJS's own i18n** (`@analogjs/router/i18n`, what this repo
+  actually uses) is a different design: *one* bundle handles every
+  configured locale. `$localize`/`i18n="@@id"` is still used in templates
+  (see the `nav.home`, `home.heading`, etc. message IDs throughout
+  `apps/storefront/src/app`), but only for *extraction* — the actual
+  translation happens at runtime, resolved per request by
+  `provideI18n()`'s `loader` (here, `import('../i18n/${locale}.json')` in
+  `app.config.ts`). Analog does support a build-time-*ish* layer on top of
+  this — `prerender: { routes, sitemap }` combined with the `i18n` config
+  generates locale-prefixed static HTML (`/en/about`, `/de/about`, …) at
+  build time — but it does that by running the *same* runtime-capable
+  bundle once per locale during the build, not by compiling N separate
+  bundles the CLI way.
+
+So "even build-time would be possible with `$localize`" is half right:
+Analog's prerender step is exactly that build-time option, and it would
+work fine for genuinely static routes here (the landing page, for
+instance). It doesn't extend to this repo's product routes, though, for
+the same reason [product content stays out of Analog's content
+collections](#product-content-model): `/<locale>/products/<sku>` isn't a
+known, finite set at build time — the catalog lives in S3 and can change
+without a rebuild. Prerendering can't enumerate routes it doesn't know
+exist yet. Baking those pages at build time would mean re-baking on every
+catalog change, which is exactly the "ephemeral, S3-backed data" premise
+this whole repo is built to avoid.
+
+**Locale-specific images are already possible, independent of any of
+this.** That part of the idea doesn't actually depend on runtime vs.
+build-time localization at all — `en.md` and `de.md` are already two
+separate frontmatter documents (see [Product content
+model](#product-content-model)), each with its own `images` array. A
+German file pointing at a different (or differently localized) image than
+its English sibling would work today, unchanged, under the current runtime
+i18n setup. Nothing about that needs compile-time bundle splitting.
+
+What real build-time bundle splitting *would* buy over the current setup:
+slightly less shipped to the client (the i18n catalogs are already tiny —
+`en.json`/`de.json` compile down to ~0.4 kB gzip each, their own chunks in
+the [bundle analysis above](#lessons-learned)) and translation-key typos
+caught at compile time instead of surfacing as a missing string at
+runtime. What it would cost: N separately built, versioned, deployed
+server bundles instead of the one Nitro process this app runs today — a
+real operational trade for a win this small at a 2-locale, 6-product
+scale. Not pursued here for that reason, not because it's unsupported.
 
 ### UI architecture
 
