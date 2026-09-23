@@ -113,8 +113,13 @@ curl http://localhost:3000/robots.txt            # explicit rules per bot class
 ```
 
 **View source on a product page** and you'll also find a `schema.org`
-`Product` JSON-LD block and a `<meta name="description">` in the `<head>`,
-both built from the same parsed product data the page renders.
+`Product` JSON-LD block, a `<meta name="description">`, and an `og:image`
+pointing at a per-product OG image — all in the `<head>`, all built from
+the same parsed product data the page renders:
+
+```sh
+curl http://localhost:3000/api/og/products/TS-BLK-001 -o og.png  # 1200x630 PNG, title + price
+```
 
 ## Measured: HTML vs. markdown, in tokens
 
@@ -356,6 +361,25 @@ today, so it stays where it is ("use before reuse").
 - **Sitemap.** Product routes aren't known at build time — they live in
   S3 — so `/sitemap-products.xml` is generated per request from the live
   catalog, with `<xhtml:link rel="alternate" hreflang>` entries per locale.
+- **Open Graph image**, generated per request at `/api/og/products/<sku>`
+  (`server/routes/api/og/products/[sku].ts`) using Analog's `ImageResponse`
+  (`@analogjs/content/og`, on `satori`/`satori-html`/`sharp`) — the same
+  `getProduct(sku, locale)` every other consumer calls, rendered as a
+  1200×630 PNG with the product's title and localized price (`en`:
+  `€29.90`, `de`: `94,90 €`). Deliberately title + price only, no product
+  photo: this catalog's images are generated placeholder SVGs, and
+  satori's own layout/rendering engine doesn't reliably support SVG `<img>`
+  sources the way a real browser would — a raster photo would embed fine,
+  these placeholders wouldn't, so the template skips it rather than risk a
+  broken image in production. Wired into the product detail page via
+  `og:image`/`twitter:image`, set alongside the description in the same
+  `effect()` as above, using `injectBaseURL()` (`@analogjs/router/tokens`)
+  for the absolute URL a crawler actually needs — skipped entirely if
+  that's `null` (e.g. no request context) rather than emit a broken
+  relative one. The font `ImageResponse` needs to lay out text (satori
+  can't use system fonts — it targets serverless/edge runtimes with no OS
+  font access) is fetched once and cached for the life of the server
+  process, not refetched per request.
 
 ### i18n
 
@@ -507,6 +531,85 @@ because it wasn't worth the churn on an already-generated set of
 components, but it's the knob to reach for if the current structure feels
 like more than the workspace needs.
 
+### Built with each framework's own AI tooling
+
+This repo is also meant to be evidence of *using* spartan.ng's and
+AnalogJS's own AI-agent tooling to build it, not just of the shipped
+storefront. The two frameworks take different approaches, and neither is
+hypothetical here — both are checked into or verified against this actual
+repo:
+
+**spartan.ng — skill + MCP server.**
+
+1. **Skill:** `npx skills add spartan-ng/spartan` (project-scoped by
+   default; `-g` installs it globally instead) — run against this repo, not
+   just documented. Procedural knowledge of spartan's CLI/components/
+   conventions lands in `.agents/skills/spartan` (the vendor-neutral
+   location this tool uses across ~20 agents — Codex, Cline, Amp, and
+   others, alongside Claude Code), with `.claude/skills/spartan` left as a
+   symlink to it rather than a separate copy. It activates automatically on
+   any project with a `components.json` — i.e. once spartan's own `init`
+   generator has run (it has, here — see [spartan.ng
+   components](#spartanng-components)) — so that has to come first, then
+   the skill.
+2. **MCP server:** [`.mcp.json`](.mcp.json), checked into this repo's root
+   so it applies to anyone working in it, not just whoever set it up:
+   ```json
+   {
+     "mcpServers": {
+       "spartan-ui": {
+         "command": "npx",
+         "args": ["-y", "@spartan-ng/mcp"]
+       }
+     }
+   }
+   ```
+   Gives Claude Code (or any MCP-speaking client) live component/docs/block
+   lookups instead of guessing spartan's API from training data. A global
+   install + `spartan-mcp` binary is the documented alternative if repeated
+   `npx` cold-starts get annoying.
+
+**AnalogJS — three formats of the same guidance, all shipped
+automatically, one wired up by hand.** `@analogjs/platform` ships three
+things the moment the dependency is installed — no setup step, no
+generator to run — all covering the same ground (file-based routing,
+server/API routes, `.server.ts` load functions, content routes, modern
+Angular style):
+
+- `node_modules/@analogjs/platform/AGENTS.md` — plain Markdown for any
+  client that reads `AGENTS.md` files. This workspace's
+  `apps/storefront/AGENTS.md` is two lines pointing at that platform copy
+  rather than a duplicated file, so it can't drift out of sync with
+  whatever Analog version is actually installed — a deliberate framework
+  design choice, not something this repo added. Works with zero
+  configuration; this is exactly how this session got its AnalogJS
+  conventions.
+- `node_modules/@analogjs/platform/plugin.json` — an [Agent
+  Plugins](https://agent-plugins.org) `1.0.0` manifest, the more formal
+  side. Confirmed directly that this is *not* auto-discovered from
+  `node_modules`: a Claude Code session running in this exact repo showed
+  no "analogjs" plugin loaded despite the manifest sitting right there —
+  Agent Plugins v1 has no `node_modules` discovery mechanism, so the
+  plugin root has to be registered with whatever client supports the spec
+  by hand.
+- `node_modules/@analogjs/platform/skills/analogjs/SKILL.md` — the same
+  guidance again, this time as a Claude-Code-native skill, mirroring
+  `AGENTS.md`. This is the one worth actually wiring up: symlinked into
+  `.claude/skills/analogjs` in this repo (the same pattern spartan's own
+  skill install used — real content in a stable location, a symlink is
+  what Claude Code discovers from), so it's genuinely active here, not
+  just described:
+  ```sh
+  ln -s ../../node_modules/@analogjs/platform/skills/analogjs .claude/skills/analogjs
+  ```
+
+No MCP server on Analog's side (as of now) — the framework-level
+counterpart to spartan's interactive skill+MCP approach is purely
+machine-readable docs (`llms.txt`/`llms-full.txt`, per-page `.md` — the
+same pattern [this repo's own agent-facing
+routes](#serving-markdown-to-agents) are modeled on) plus the three files
+above.
+
 ### Routes
 
 | Route | Served by |
@@ -516,6 +619,7 @@ like more than the workspace needs.
 | `/<locale>/products` | product list (`.server.ts` load function, category filter via query param) |
 | `/<locale>/products/<sku>` | product detail — HTML, or markdown if negotiated |
 | `/<locale>/products/<sku>.md` | always raw markdown |
+| `/api/og/products/<sku>` | per-product Open Graph image (PNG, `?locale=`) |
 | `/llms.txt` | request-time index → product `.md` routes |
 | `/sitemap-products.xml` | request-time sitemap of the live catalog |
 | `/robots.txt` | per-bot-class rules |
@@ -565,6 +669,7 @@ apps/
     src/i18n/                en.json / de.json UI string catalogs
     src/server/
       middleware/            content negotiation, llms.txt, sitemap, robots.txt
+      routes/api/og/products/[sku].ts   per-product Open Graph image
       lib/                   Accept-header/user-agent detection, robots.txt rules
 
   product-ingest/          NestJS CLI (nest-commander) - seeds S3Mock,
@@ -581,6 +686,9 @@ libs/
                             toggle-group + shared utils) - one Nx lib each
 
 components.json           spartan CLI config (where helm code goes, style)
+.mcp.json                 spartan's MCP server (checked in, applies repo-wide)
+.claude/skills/           spartan + analogjs skills - see "Built with each
+                          framework's own AI tooling"
 docker-compose.yml        S3Mock, the only external dependency
 ```
 
@@ -610,6 +718,7 @@ server-side, before the page renders.
 | i18n | AnalogJS's native runtime i18n (`provideI18n`, `[locale]` route segment) |
 | Product storage | S3-compatible object storage (Adobe S3Mock), ephemeral |
 | Content parsing | `front-matter` + `marked` |
+| OG images | Analog's `ImageResponse` (`@analogjs/content/og`), on `satori` + `satori-html` + `sharp` |
 | Ingest tool | NestJS CLI (`nest-commander`) |
 
 ## Lessons learned
@@ -730,9 +839,6 @@ S3Mock throughout its build, not by a test suite.
 
 ## Not built (yet)
 
-- **Open Graph image generation.** Analog ships `ImageResponse`
-  (`@analogjs/content/og`, on satori) for rendering a per-product OG image
-  from an API route; it isn't wired up, so product pages have no `og:image`.
 - **Streaming SSR.** Analog's `experimental.streaming` option with
   `@defer (hydrate on viewport)` would progressively flush the response;
   still a stretch goal, not attempted.

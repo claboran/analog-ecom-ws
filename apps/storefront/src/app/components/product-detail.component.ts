@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, effect, inject, input } from '@angular/core';
 import { DomSanitizer, Meta } from '@angular/platform-browser';
 import { RouterLink } from '@angular/router';
+import { injectBaseURL } from '@analogjs/router/tokens';
 import { patchState, signalState } from '@ngrx/signals';
 import { HlmBadge } from '@spartan-ng/helm/badge';
 import { HlmButton } from '@spartan-ng/helm/button';
@@ -122,6 +123,7 @@ export class ProductDetailComponent {
 
   private readonly sanitizer = inject(DomSanitizer);
   private readonly meta = inject(Meta);
+  private readonly baseUrl = injectBaseURL();
 
   protected readonly selection = signalState<ProductSelectionState>({
     selectedSize: null,
@@ -141,15 +143,28 @@ export class ProductDetailComponent {
       });
     });
 
-    // Per-product <meta name="description">. Has to be an effect for the
-    // same reason as the picker reset above (and JsonLdDirective): the
-    // component instance is reused across [sku] navigations. updateTag
-    // replaces an existing description tag rather than appending a second.
+    // Per-product <meta name="description"> and OG/Twitter image tags.
+    // Has to be an effect for the same reason as the picker reset above
+    // (and JsonLdDirective): the component instance is reused across
+    // [sku] navigations. updateTag replaces an existing tag rather than
+    // appending a second.
     effect(() => {
-      this.meta.updateTag({
-        name: 'description',
-        content: productDescription(this.product(), META_DESCRIPTION_MAX_LENGTH),
-      });
+      const product = this.product();
+      const description = productDescription(product, META_DESCRIPTION_MAX_LENGTH);
+      this.meta.updateTag({ name: 'description', content: description });
+
+      // injectBaseURL() is null in contexts with no request/host to derive
+      // it from (e.g. a unit test); og:image needs an absolute URL to mean
+      // anything to a crawler, so skip it entirely rather than emit a
+      // broken relative one.
+      if (this.baseUrl) {
+        const ogImageUrl = `${this.baseUrl}/api/og/products/${product.sku}?locale=${this.locale()}`;
+        this.meta.updateTag({ property: 'og:title', content: product.title });
+        this.meta.updateTag({ property: 'og:description', content: description });
+        this.meta.updateTag({ property: 'og:image', content: ogImageUrl });
+        this.meta.updateTag({ name: 'twitter:card', content: 'summary_large_image' });
+        this.meta.updateTag({ name: 'twitter:image', content: ogImageUrl });
+      }
     });
   }
 
