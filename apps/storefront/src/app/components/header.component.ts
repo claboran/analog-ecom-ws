@@ -28,6 +28,7 @@ import type { Locale } from '@analog-ecom-ws/product-schema';
             type="single"
             variant="outline"
             size="sm"
+            aria-label="Language"
             [nullable]="false"
             [value]="locale()"
             (valueChange)="select($event)"

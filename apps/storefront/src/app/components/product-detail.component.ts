@@ -67,11 +67,11 @@ type ProductSelectionState = {
           <p class="mt-3 text-xl">{{ price() }}</p>
 
           @if (product().stock > 0) {
-            <!-- brand-accent is the one-off badge color (see styles.css); classes
-                 merge over the badge variant via tailwind-merge. -->
-            <span hlmBadge class="mt-4 bg-brand-accent text-brand-accent-foreground">In stock</span>
+            <!-- accent = the one-off brand-accent badge color (see styles.css),
+                 added as a variant in libs/ui/badge. -->
+            <span hlmBadge variant="accent" class="mt-4">In stock</span>
           } @else {
-            <span hlmBadge variant="secondary" class="mt-4 text-muted-foreground">Out of stock</span>
+            <span hlmBadge variant="muted" class="mt-4">Out of stock</span>
           }
 
           <div class="mt-6 grid grid-cols-2 gap-6 text-sm">

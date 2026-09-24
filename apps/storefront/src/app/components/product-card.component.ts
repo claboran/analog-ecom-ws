@@ -28,10 +28,10 @@ import { formatPrice } from '../lib/format-price';
         width="640"
         height="640"
       />
-      <div hlmCardContent class="flex flex-col items-start gap-2">
+      <div hlmCardHeader class="gap-2">
         <span hlmBadge variant="secondary">{{ product().category.split('/')[1] }}</span>
         <h2 hlmCardTitle>{{ product().title }}</h2>
-        <p class="text-sm text-muted-foreground">{{ price() }}</p>
+        <p hlmCardDescription>{{ price() }}</p>
       </div>
     </a>
   `,

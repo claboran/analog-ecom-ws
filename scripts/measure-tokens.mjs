@@ -2,15 +2,16 @@
 // Measures token/byte cost of the rendered-HTML vs raw-markdown response for
 // the same product detail URL - the actual comparison this repo's agent-facing
 // content negotiation exists to make (see README "Serving markdown to
-// agents"). Requires the storefront running locally (npm start or npm run dev).
+// agents"). Requires the storefront running locally (npm start serves on :3000; pass
+// http://localhost:4200 as baseUrl for npm run dev).
 //
 // Usage: node scripts/measure-tokens.mjs [baseUrl]
 // Output: a markdown table, ready to paste into README.md.
 
-import { countTokens as countTokensCl100k } from 'gpt-tokenizer';
+import { countTokens as countTokensCl100k } from 'gpt-tokenizer/encoding/cl100k_base';
 import { countTokens as countTokensGpt4o } from 'gpt-tokenizer/model/gpt-4o';
 
-const baseUrl = process.argv[2] ?? 'http://localhost:4200';
+const baseUrl = process.argv[2] ?? 'http://localhost:3000';
 const locales = ['en', 'de'];
 const sku = 'TS-BLK-001';
 
