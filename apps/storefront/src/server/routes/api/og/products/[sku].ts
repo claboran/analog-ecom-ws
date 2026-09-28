@@ -21,16 +21,18 @@ import { formatPrice } from '../../../../../app/lib/format-price';
 // no OS font access) - it needs actual font bytes. Fetched once and cached
 // for the life of the server process, not per request.
 let fontDataPromise: Promise<ArrayBuffer> | undefined;
-function loadFontData(): Promise<ArrayBuffer> {
+const loadFontData = (): Promise<ArrayBuffer> => {
   fontDataPromise ??= fetch('https://og-playground.vercel.app/inter-latin-ext-700-normal.woff').then((res) =>
     res.arrayBuffer(),
   );
   return fontDataPromise;
-}
+};
 
-function escapeHtml(value: string): string {
-  return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-}
+const escapeHtml = (value: string): string =>
+  value.replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
 
 export default defineEventHandler(async (event) => {
   const sku = getRouterParam(event, 'sku');

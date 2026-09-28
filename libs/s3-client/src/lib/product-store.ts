@@ -23,7 +23,7 @@ const s3 = createS3Client();
 // listProducts - none of them re-implement S3 fetch or frontmatter
 // parsing on their own.
 
-function parseProductMarkdown(raw: string): Product {
+const parseProductMarkdown = (raw: string): Product => {
   const { attributes, body } = frontMatter<Record<string, unknown>>(raw);
   const frontmatter = ProductFrontmatterSchema.parse(attributes);
   return {
@@ -32,18 +32,21 @@ function parseProductMarkdown(raw: string): Product {
     bodyHtml: marked.parse(body.trim(), { async: false }),
     raw,
   };
-}
+};
 
-async function bodyToString(body: unknown): Promise<string> {
   // Node-only runtime (Nitro server + the ingest CLI both run on Node),
   // so the SdkStreamMixin helper is always available on the response body.
-  return (body as { transformToString: (encoding?: string) => Promise<string> }).transformToString('utf-8');
-}
+const bodyToString = async (body: unknown): Promise<string> => (body as {
+  transformToString: (encoding?: string) => Promise<string>
+}).transformToString('utf-8');
 
-export async function getProductRaw(sku: string, locale: Locale): Promise<string | null> {
+export const getProductRaw = async (
+  sku: string,
+  locale: Locale,
+): Promise<string | null> => {
   try {
     const result = await s3.send(
-      new GetObjectCommand({ Bucket: PRODUCTS_BUCKET, Key: productObjectKey(sku, locale) }),
+      new GetObjectCommand({Bucket: PRODUCTS_BUCKET, Key: productObjectKey(sku, locale)}),
     );
     return await bodyToString(result.Body);
   } catch (err) {
@@ -52,14 +55,17 @@ export async function getProductRaw(sku: string, locale: Locale): Promise<string
     }
     throw err;
   }
-}
+};
 
-export async function getProduct(sku: string, locale: Locale): Promise<Product | null> {
+export const getProduct = async (
+  sku: string,
+  locale: Locale,
+): Promise<Product | null> => {
   const raw = await getProductRaw(sku, locale);
   return raw === null ? null : parseProductMarkdown(raw);
-}
+};
 
-export async function listProductSkus(): Promise<string[]> {
+export const listProductSkus = async (): Promise<string[]> => {
   const skus = new Set<string>();
   let continuationToken: string | undefined;
   do {
@@ -69,24 +75,27 @@ export async function listProductSkus(): Promise<string[]> {
         ContinuationToken: continuationToken,
       }),
     );
-    for (const obj of result.Contents ?? []) {
+    (result.Contents ?? []).reduce((acc, obj) => {
       const match = obj.Key?.match(/^([^/]+)\//);
       if (match) {
-        skus.add(match[1]);
+        acc.add(match[1]);
       }
-    }
+      return acc;
+    }, skus);
     continuationToken = result.IsTruncated ? result.NextContinuationToken : undefined;
   } while (continuationToken);
   return [...skus].sort();
-}
+};
 
-export async function listProducts(locale: Locale): Promise<Product[]> {
+export const listProducts = async (locale: Locale): Promise<Product[]> => {
   const skus = await listProductSkus();
-  const products = await Promise.all(skus.map((sku) => getProduct(sku, locale)));
+  const products = await Promise.all(
+    skus.map((sku) => getProduct(sku, locale)),
+  );
   return products.filter((product): product is Product => product !== null);
-}
+};
 
-export async function putProductMarkdown(sku: string, locale: Locale, raw: string): Promise<void> {
+export const putProductMarkdown = async (sku: string, locale: Locale, raw: string): Promise<void> => {
   // Validate before writing, so the ingest CLI can never push a fixture
   // that the storefront would later fail to parse - same schema on both
   // ends.
@@ -99,9 +108,9 @@ export async function putProductMarkdown(sku: string, locale: Locale, raw: strin
       ContentType: 'text/markdown; charset=utf-8',
     }),
   );
-}
+};
 
-export async function clearProducts(): Promise<number> {
+export const clearProducts = async (): Promise<number> => {
   let continuationToken: string | undefined;
   let deleted = 0;
   do {
@@ -111,12 +120,13 @@ export async function clearProducts(): Promise<number> {
         ContinuationToken: continuationToken,
       }),
     );
-    for (const obj of result.Contents ?? []) {
-      if (!obj.Key) continue;
+    deleted += await (result.Contents ?? []).reduce(async (accPromise, obj) => {
+      const acc = await accPromise;
+      if (!obj.Key) return acc;
       await s3.send(new DeleteObjectCommand({ Bucket: PRODUCTS_BUCKET, Key: obj.Key }));
-      deleted++;
-    }
+      return acc + 1;
+    }, Promise.resolve(0));
     continuationToken = result.IsTruncated ? result.NextContinuationToken : undefined;
   } while (continuationToken);
   return deleted;
-}
+};
