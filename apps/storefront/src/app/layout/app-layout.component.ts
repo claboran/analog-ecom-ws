@@ -5,6 +5,7 @@ import { map } from 'rxjs';
 import { injectSwitchLocale } from '@analogjs/router/i18n';
 import { LOCALES, type Locale } from '@analog-ecom-ws/product-schema/locales';
 import { CartStore } from '../stores/cart.store';
+import { SessionStore } from '../stores/session.store';
 import { HeaderComponent } from '../components/header.component';
 import { FooterComponent } from '../components/footer.component';
 import { BreadcrumbComponent } from '../components/breadcrumb.component';
@@ -21,7 +22,11 @@ import { BreadcrumbComponent } from '../components/breadcrumb.component';
   imports: [RouterOutlet, HeaderComponent, FooterComponent, BreadcrumbComponent],
   template: `
     <div class="flex min-h-full flex-col bg-background text-foreground">
-      <app-header [locale]="locale()" [locales]="locales" [cartCount]="cart.count()" (localeChange)="switchLocale($event)" />
+      <app-header [locale]="locale()" [locales]="locales" [cartCount]="cart.count()"
+        [userName]="session.userName()"
+        (signIn)="session.ensureSignedIn()"
+        (signOut)="session.signOut()"
+        (localeChange)="switchLocale($event)" />
 
       <main class="mx-auto w-full max-w-5xl flex-1 px-6 py-10">
         <app-breadcrumb [locale]="locale()" />
@@ -37,6 +42,7 @@ export class AppLayoutComponent {
   private readonly switchLang = injectSwitchLocale();
 
   protected readonly cart = inject(CartStore);
+  protected readonly session = inject(SessionStore);
   protected readonly locales = LOCALES;
   protected readonly locale = toSignal(
     this.route.paramMap.pipe(map((params) => (params.get('locale') as Locale) ?? 'en')),
@@ -46,7 +52,10 @@ export class AppLayoutComponent {
   constructor() {
     // Client-only: the session cart is fetched after hydration, never during
     // SSR, so server-rendered pages stay identical for every visitor.
-    afterNextRender(() => void this.cart.load(this.locale()));
+    afterNextRender(() => {
+      void this.session.load();
+      void this.cart.load(this.locale());
+    });
 
     // Titles and prices are locale-specific and this layout (like the
     // pages under it) survives a locale switch, so an already-loaded cart

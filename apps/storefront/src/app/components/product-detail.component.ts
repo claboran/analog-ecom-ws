@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, computed, effect, inject, input, signal } from '@angular/core';
-import { FormField, FormRoot, form, max, min, required } from '@angular/forms/signals';
+import { FormField, FormRoot, form, max, min } from '@angular/forms/signals';
 import { DomSanitizer, Meta } from '@angular/platform-browser';
 import { RouterLink } from '@angular/router';
 import { injectBaseURL } from '@analogjs/router/tokens';
@@ -8,16 +8,17 @@ import { HlmButton } from '@spartan-ng/helm/button';
 import { HlmToggleGroupImports } from '@spartan-ng/helm/toggle-group';
 import type { Locale, Product } from '@analog-ecom-ws/product-schema';
 import { JsonLdDirective } from '../directives/json-ld.directive';
-import { MAX_QUANTITY, MAX_USER_NAME_LENGTH } from '../lib/cart-constants';
+import { HttpErrorResponse } from '@angular/common/http';
+import { MAX_QUANTITY } from '../lib/cart-constants';
 import { formatPrice } from '../lib/format-price';
 import { META_DESCRIPTION_MAX_LENGTH, productDescription } from '../lib/product-description';
 import { CartStore } from '../stores/cart.store';
+import { SessionStore } from '../stores/session.store';
 
 type AddToCartModel = {
   size: string;
   color: string;
   quantity: number;
-  userName: string;
 };
 
 // Purely presentational, same pattern as ProductCardComponent for the
@@ -48,9 +49,9 @@ type AddToCartModel = {
 // submission state come for free. (The toggle groups aren't form controls,
 // so they read/write the model directly instead of using [formField].)
 //
-// userName is only asked for - and only validated - while the server-side
-// session (CartStore) has no user yet: the first add-to-cart is what
-// attaches a name to the session.
+// Adding requires a signed-in session: the submit action first awaits
+// SessionStore.ensureSignedIn(), which opens the login dialog if needed, so
+// "sign in, then add" is one continuous submit.
 @Component({
   selector: 'app-product-detail',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -119,23 +120,6 @@ type AddToCartModel = {
           </div>
 
           <form [formRoot]="addForm" class="mt-8 flex flex-col gap-4">
-            @if (!cart.userName()) {
-              <label class="flex flex-col gap-1 text-sm">
-                <span class="text-muted-foreground">Your name</span>
-                <input
-                  type="text"
-                  autocomplete="name"
-                  class="h-9 rounded-md border border-input bg-background px-2.5"
-                  [formField]="addForm.userName"
-                />
-                @if (addForm.userName().touched() && addForm.userName().invalid()) {
-                  <span class="text-destructive" role="alert">Please enter your name.</span>
-                }
-              </label>
-            } @else {
-              <p class="text-sm text-muted-foreground">Shopping as {{ cart.userName() }}</p>
-            }
-
             <label class="flex flex-col gap-1 text-sm">
               <span class="text-muted-foreground">Quantity</span>
               <input
@@ -174,33 +158,45 @@ export class ProductDetailComponent {
   private readonly meta = inject(Meta);
   private readonly baseUrl = injectBaseURL();
 
-  protected readonly cart = inject(CartStore);
+  private readonly cart = inject(CartStore);
+  private readonly session = inject(SessionStore);
 
-  protected readonly model = signal<AddToCartModel>({ size: '', color: '', quantity: 1, userName: '' });
+  protected readonly model = signal<AddToCartModel>({ size: '', color: '', quantity: 1 });
   protected readonly justAdded = signal(false);
 
   protected readonly addForm = form(
     this.model,
     (path) => {
-      required(path.userName, { when: () => !this.cart.userName() });
       min(path.quantity, 1);
       max(path.quantity, MAX_QUANTITY);
     },
     {
       submission: {
         action: async () => {
-          const { size, color, quantity, userName } = this.model();
+          this.justAdded.set(false);
+          // Dismissing the login dialog is a cancel, not an error.
+          if (!(await this.session.ensureSignedIn())) {
+            return undefined;
+          }
+          const { size, color, quantity } = this.model();
+          const input = { sku: this.product().sku, size, color, quantity, locale: this.locale() };
           try {
-            await this.cart.add({
-              sku: this.product().sku,
-              size,
-              color,
-              quantity,
-              locale: this.locale(),
-              ...(this.cart.userName() ? {} : { userName: userName.trim().slice(0, MAX_USER_NAME_LENGTH) }),
-            });
+            try {
+              await this.cart.add(input);
+            } catch (err) {
+              // 401: the session expired (or the server restarted) since the
+              // header last looked. Treat it as signed out, sign in again
+              // and retry once.
+              if (!(err instanceof HttpErrorResponse && err.status === 401)) {
+                throw err;
+              }
+              this.session.markSignedOut();
+              if (!(await this.session.ensureSignedIn())) {
+                return undefined;
+              }
+              await this.cart.add(input);
+            }
           } catch {
-            this.justAdded.set(false);
             return { kind: 'server', message: 'Could not add to cart. Please try again.' };
           }
           this.justAdded.set(true);

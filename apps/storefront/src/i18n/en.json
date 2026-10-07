@@ -9,5 +9,13 @@
   "home.heading": "Goods, worn in, not worn out",
   "home.subheading": "A small catalog of shirts and shoes, in English and German, served as markdown for agents and rendered pages for everyone else.",
   "home.cta": "Browse the catalog",
-  "meta.products.description": "Browse the full Analog Goods catalog of shirts and shoes - product details as rendered pages or raw markdown."
+  "meta.products.description": "Browse the full Analog Goods catalog of shirts and shoes - product details as rendered pages or raw markdown.",
+  "nav.cart": "Cart",
+  "nav.signIn": "Sign in",
+  "nav.signOut": "Sign out",
+  "login.title": "Sign in",
+  "login.description": "Pick a name for this demo session - there is no password. It is kept until you sign out or the session expires.",
+  "login.name": "Your name",
+  "login.nameRequired": "Please enter your name.",
+  "login.submit": "Sign in"
 }

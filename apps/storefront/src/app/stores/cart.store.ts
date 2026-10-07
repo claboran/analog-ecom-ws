@@ -12,7 +12,7 @@ type CartState = CartView & {
   status: 'idle' | 'loading' | 'ready' | 'error';
 };
 
-const initialState: CartState = { userName: null, lines: [], status: 'idle' };
+const initialState: CartState = { lines: [], status: 'idle' };
 
 // Client mirror of the server-side session cart (server/lib/cart-session.ts).
 // The server is the source of truth; every method replaces local state with
@@ -39,6 +39,10 @@ export const CartStore = signalStore(
     async add(input: AddToCartInput): Promise<void> {
       const view = await firstValueFrom(http.post<CartView>('/api/cart/items', input));
       patchState(store, { ...view, status: 'ready' });
+    },
+    // Signed out: the server deleted the session, so the cart is gone too.
+    reset(): void {
+      patchState(store, { lines: [], status: 'ready' });
     },
     // The server prices and freezes the order, then empties the cart; the
     // local mirror follows. Rejects on failure so the page can show it.

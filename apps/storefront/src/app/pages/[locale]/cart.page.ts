@@ -8,6 +8,7 @@ import { HlmButton } from '@spartan-ng/helm/button';
 import { CartItemComponent } from '../../components/cart-item.component';
 import { formatPrice } from '../../lib/format-price';
 import { CartStore } from '../../stores/cart.store';
+import { SessionStore } from '../../stores/session.store';
 
 export const routeMeta: RouteMeta = {
   title: 'Cart',
@@ -30,7 +31,7 @@ export const routeMeta: RouteMeta = {
         <p class="mt-6 text-muted-foreground">Your cart is empty.</p>
         <a hlmBtn class="mt-4" [routerLink]="['/', locale(), 'products']">Browse products</a>
       } @else {
-        <p class="mt-2 text-sm text-muted-foreground">Shopping as {{ cart.userName() }}</p>
+        <p class="mt-2 text-sm text-muted-foreground">Shopping as {{ session.userName() }}</p>
         <ul class="mt-6 divide-y divide-border">
           @for (line of cart.lines(); track line.sku + line.size + line.color) {
             <li app-cart-item [line]="line" [locale]="locale()"></li>
@@ -50,6 +51,7 @@ export const routeMeta: RouteMeta = {
 })
 export default class CartPageComponent {
   protected readonly cart = inject(CartStore);
+  protected readonly session = inject(SessionStore);
   private readonly route = inject(ActivatedRoute);
 
   protected readonly locale = toSignal(

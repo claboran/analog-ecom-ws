@@ -15,7 +15,7 @@ const MAX_SESSIONS = 1000;
 type StoredItem = { sku: string; size: string; color: string; quantity: number };
 // Orders live on the session too: an order is only ever readable by the
 // session that placed it, and goes away with it.
-type Session = { userName: string | null; items: StoredItem[]; orders: OrderView[]; lastSeen: number };
+type Session = { userName: string; items: StoredItem[]; orders: OrderView[]; lastSeen: number };
 
 const sessions = new Map<string, Session>();
 
@@ -35,27 +35,7 @@ const sweep = (): void => {
   }
 };
 
-export const findSession = (event: H3Event): Session | undefined => {
-  const id = getCookie(event, COOKIE);
-  const session = id ? sessions.get(id) : undefined;
-  if (session) {
-    session.lastSeen = Date.now();
-  } else if (id) {
-    deleteCookie(event, COOKIE); // stale cookie from before a restart/TTL
-  }
-  return session;
-};
-
-// Only called from the first add-to-cart: reads never create a session.
-export const getOrCreateSession = (event: H3Event, userName: string | null): Session => {
-  const existing = findSession(event);
-  if (existing) {
-    return existing;
-  }
-  sweep();
-  const id = randomUUID();
-  const session: Session = { userName, items: [], orders: [], lastSeen: Date.now() };
-  sessions.set(id, session);
+const writeCookie = (event: H3Event, id: string): void => {
   setCookie(event, COOKIE, id, {
     httpOnly: true,
     sameSite: 'lax',
@@ -63,7 +43,47 @@ export const getOrCreateSession = (event: H3Event, userName: string | null): Ses
     path: '/',
     maxAge: TTL_MS / 1000,
   });
+};
+
+// Sliding expiry, on both sides: every lookup that finds a live session
+// bumps `lastSeen` (server TTL) and re-sends the cookie (browser max-age), so
+// the two always expire together after 2h of inactivity. A fixed cookie
+// max-age would drop the cookie while the server still held the session.
+export const findSession = (event: H3Event): Session | undefined => {
+  const id = getCookie(event, COOKIE);
+  const session = id ? sessions.get(id) : undefined;
+  if (id && session) {
+    session.lastSeen = Date.now();
+    writeCookie(event, id);
+  } else if (id) {
+    deleteCookie(event, COOKIE); // stale cookie from before a restart/TTL
+  }
   return session;
+};
+
+// The pseudo login. Signing in again while a session exists just renames it
+// (keeps the cart); there is no password and nothing to verify.
+export const signIn = (event: H3Event, userName: string): Session => {
+  const existing = findSession(event);
+  if (existing) {
+    existing.userName = userName;
+    return existing;
+  }
+  sweep();
+  const id = randomUUID();
+  const session: Session = { userName, items: [], orders: [], lastSeen: Date.now() };
+  sessions.set(id, session);
+  writeCookie(event, id);
+  return session;
+};
+
+// Deletes the session outright: cart and orders go with it.
+export const signOut = (event: H3Event): void => {
+  const id = getCookie(event, COOKIE);
+  if (id) {
+    sessions.delete(id);
+    deleteCookie(event, COOKIE);
+  }
 };
 
 export const addItem = (session: Session, item: StoredItem): void => {
@@ -81,7 +101,7 @@ export const addItem = (session: Session, item: StoredItem): void => {
 // client or from what was stored when the item was added.
 export const toCartView = async (session: Session | undefined, locale: Locale): Promise<CartView> => {
   if (!session) {
-    return { userName: null, lines: [] };
+    return { lines: [] };
   }
   const lines = await Promise.all(
     session.items.map(async (item): Promise<CartLine | null> => {
@@ -91,7 +111,7 @@ export const toCartView = async (session: Session | undefined, locale: Locale): 
         : null;
     }),
   );
-  return { userName: session.userName, lines: lines.filter((line): line is CartLine => line !== null) };
+  return { lines: lines.filter((line): line is CartLine => line !== null) };
 };
 
 export const requireProduct = async (sku: string) => {
@@ -129,7 +149,7 @@ const assertInStock = async (lines: CartLine[]): Promise<void> => {
 // it on the session and empties the cart. Returns null for an empty cart.
 export const placeOrder = async (session: Session, locale: Locale): Promise<OrderView | null> => {
   const { lines } = await toCartView(session, locale);
-  if (lines.length === 0 || !session.userName) {
+  if (lines.length === 0) {
     return null;
   }
   await assertInStock(lines);

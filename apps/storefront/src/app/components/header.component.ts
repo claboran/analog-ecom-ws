@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
 import { RouterLink } from '@angular/router';
+import { HlmButton } from '@spartan-ng/helm/button';
 import { HlmBadge } from '@spartan-ng/helm/badge';
 import { HlmToggleGroupImports } from '@spartan-ng/helm/toggle-group';
 import type { Locale } from '@analog-ecom-ws/product-schema';
@@ -16,7 +17,7 @@ import type { Locale } from '@analog-ecom-ws/product-schema';
 @Component({
   selector: 'app-header',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink, HlmBadge, HlmToggleGroupImports],
+  imports: [RouterLink, HlmBadge, HlmButton, HlmToggleGroupImports],
   template: `
     <header class="border-b border-border">
       <div class="mx-auto flex max-w-5xl items-center justify-between px-6 py-4">
@@ -31,6 +32,16 @@ import type { Locale } from '@analog-ecom-ws/product-schema';
               <span hlmBadge variant="secondary" class="ml-1">{{ cartCount() }}</span>
             }
           </a>
+          @if (userName(); as name) {
+            <span class="text-muted-foreground">{{ name }}</span>
+            <button hlmBtn variant="ghost" size="sm" type="button" (click)="signOut.emit()" i18n="@@nav.signOut">
+              Sign out
+            </button>
+          } @else {
+            <button hlmBtn variant="outline" size="sm" type="button" (click)="signIn.emit()" i18n="@@nav.signIn">
+              Sign in
+            </button>
+          }
           <hlm-toggle-group
             type="single"
             variant="outline"
@@ -55,6 +66,11 @@ export class HeaderComponent {
   // Always 0 on the server and on the first client render; the layout fills
   // it in once the client-only cart has loaded.
   readonly cartCount = input(0);
+  // null while signed out - and on the server / first client render, like
+  // cartCount: the session is client-only.
+  readonly userName = input<string | null>(null);
+  readonly signIn = output<void>();
+  readonly signOut = output<void>();
   readonly localeChange = output<Locale>();
 
   // The group emits whatever value type it was given; only act on an actual

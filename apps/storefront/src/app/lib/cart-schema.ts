@@ -13,6 +13,20 @@ import { MAX_QUANTITY, MAX_USER_NAME_LENGTH } from './cart-constants';
 
 export const localeSchema = z.enum(LOCALES);
 
+// --- Session ---
+
+// The pseudo login: just a display name, no password. Shared by the sign-in
+// request and (as a type) the login dialog's form.
+export const signInSchema = z.object({
+  userName: z.string().trim().min(1).max(MAX_USER_NAME_LENGTH),
+});
+
+export const sessionViewSchema = z.object({
+  // null while signed out (also what an expired session looks like).
+  userName: z.string().nullable(),
+});
+export type SessionView = z.infer<typeof sessionViewSchema>;
+
 // --- Requests (validated on the server) ---
 
 export const addItemSchema = z.object({
@@ -21,8 +35,6 @@ export const addItemSchema = z.object({
   color: z.string().min(1),
   quantity: z.number().int().min(1).max(MAX_QUANTITY),
   locale: localeSchema,
-  // Required only while the session has no user yet; the handler enforces that.
-  userName: z.string().trim().min(1).max(MAX_USER_NAME_LENGTH).optional(),
 });
 export type AddToCartInput = z.infer<typeof addItemSchema>;
 
@@ -44,8 +56,6 @@ export const cartLineSchema = z.object({
 export type CartLine = z.infer<typeof cartLineSchema>;
 
 export const cartViewSchema = z.object({
-  // null until the first add-to-cart attaches a name to the session.
-  userName: z.string().nullable(),
   lines: z.array(cartLineSchema),
 });
 export type CartView = z.infer<typeof cartViewSchema>;
