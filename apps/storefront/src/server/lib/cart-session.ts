@@ -21,11 +21,11 @@ const sessions = new Map<string, Session>();
 
 const sweep = (): void => {
   const cutoff = Date.now() - TTL_MS;
-  for (const [id, session] of sessions) {
+  Array.from(sessions.entries()).forEach(([id, session]) => {
     if (session.lastSeen < cutoff) {
       sessions.delete(id);
     }
-  }
+  });
   // Map iterates in insertion order, so the oldest go first.
   for (const id of sessions.keys()) {
     if (sessions.size < MAX_SESSIONS) {
