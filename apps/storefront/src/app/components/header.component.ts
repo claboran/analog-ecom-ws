@@ -7,9 +7,8 @@ import type { Locale } from '@analog-ecom-ws/product-schema';
 
 // Purely presentational - locale comes in as a signal input (derived from
 // the route by whoever hosts this), switching goes out as an output. No
-// local state to manage here, so there's nothing for signalState to do;
-// see the note in app-layout.component.ts for where that line actually
-// gets drawn.
+// local state to manage here, so there's nothing to own; see the note in
+// app-layout.component.ts for where that line actually gets drawn.
 //
 // The locale switcher is a spartan single-select toggle group: it's a
 // "pick exactly one" control, which is what gives it roving keyboard focus

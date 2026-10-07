@@ -12,10 +12,10 @@ import { BreadcrumbComponent } from '../components/breadcrumb.component';
 
 // Single shared shell for every /:locale route - header + <router-outlet>
 // + footer. `locale` here is derived from the route (via toSignal), not
-// owned local state - it stays a plain computed/signal rather than
-// signalState, since signalState is for state a component actually owns
-// and mutates, not a read-only projection of the router's own state
-// (overall-goals-design.md §8).
+// owned local state - it stays a plain computed/signal. Component-owned
+// state (like the add-to-cart form's model in ProductDetailComponent) is
+// for state a component actually owns and mutates, not a read-only
+// projection of the router's own state (overall-goals-design.md §8).
 @Component({
   selector: 'app-layout',
   changeDetection: ChangeDetectionStrategy.OnPush,

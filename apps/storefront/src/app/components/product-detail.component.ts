@@ -24,7 +24,7 @@ type AddToCartModel = {
 // Purely presentational, same pattern as ProductCardComponent for the
 // signal inputs: price/bodyHtml/jsonLd are pure derivations of `product`/
 // `locale`, so they stay plain `computed()` - there's nothing to "own"
-// between renders, and syncing them into signalState would just be a
+// between renders, and syncing them into local state would just be a
 // second source of truth with no benefit.
 //
 // bodyHtml is rendered with `marked` in libs/s3-client, not Analog's own
