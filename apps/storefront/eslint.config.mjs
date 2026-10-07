@@ -29,6 +29,30 @@ export default [
         }
     },
     {
+        // cart-schema.ts imports zod at module scope: client code may only
+        // `import type` from it (erased at compile time), never import values.
+        files: [
+            "**/src/app/**/*.ts"
+        ],
+        ignores: [
+            "**/src/app/lib/cart-schema.ts"
+        ],
+        rules: {
+            "@typescript-eslint/no-restricted-imports": [
+                "error",
+                {
+                    patterns: [
+                        {
+                            regex: "(^|/)cart-schema$",
+                            allowTypeImports: true,
+                            message: "cart-schema pulls zod into the client bundle - use `import type`, and keep runtime values in cart-constants.ts."
+                        }
+                    ]
+                }
+            ]
+        }
+    },
+    {
         files: [
             "**/*.html"
         ],

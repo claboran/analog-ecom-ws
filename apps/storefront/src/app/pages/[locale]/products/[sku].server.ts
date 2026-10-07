@@ -8,9 +8,8 @@ export type ProductDetailData = {
   product: Product | null;
 };
 
-function isLocale(value: string | undefined): value is Locale {
-  return !!value && (LOCALES as readonly string[]).includes(value);
-}
+const isLocale = (value: string | undefined): value is Locale =>
+  !!value && (LOCALES as readonly string[]).includes(value)
 
 export async function load({ params = {} }: PageServerLoad): Promise<ProductDetailData> {
   const locale: Locale = isLocale(params['locale']) ? params['locale'] : 'en';

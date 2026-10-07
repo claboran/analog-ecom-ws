@@ -13,6 +13,7 @@
     "setup": "npm run docker:up && npm run seed",
     "dev": "npm run setup && npm run storefront:dev",
     "start": "npm run setup && npm run storefront:start",
+    "check:client-zod": "node scripts/check-client-zod.mjs",
     "measure:tokens": "node scripts/measure-tokens.mjs"
   },
   "private": true,

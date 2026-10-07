@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
 import { RouterLink } from '@angular/router';
+import { HlmBadge } from '@spartan-ng/helm/badge';
 import { HlmToggleGroupImports } from '@spartan-ng/helm/toggle-group';
 import type { Locale } from '@analog-ecom-ws/product-schema';
 
@@ -15,7 +16,7 @@ import type { Locale } from '@analog-ecom-ws/product-schema';
 @Component({
   selector: 'app-header',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink, HlmToggleGroupImports],
+  imports: [RouterLink, HlmBadge, HlmToggleGroupImports],
   template: `
     <header class="border-b border-border">
       <div class="mx-auto flex max-w-5xl items-center justify-between px-6 py-4">
@@ -24,6 +25,12 @@ import type { Locale } from '@analog-ecom-ws/product-schema';
         </a>
         <nav class="flex items-center gap-6 text-sm">
           <a [routerLink]="['/', locale(), 'products']" class="hover:text-primary" i18n="@@nav.products">Products</a>
+          <a [routerLink]="['/', locale(), 'cart']" class="hover:text-primary">
+            <ng-container i18n="@@nav.cart">Cart</ng-container>
+            @if (cartCount() > 0) {
+              <span hlmBadge variant="secondary" class="ml-1">{{ cartCount() }}</span>
+            }
+          </a>
           <hlm-toggle-group
             type="single"
             variant="outline"
@@ -45,6 +52,9 @@ import type { Locale } from '@analog-ecom-ws/product-schema';
 export class HeaderComponent {
   readonly locale = input.required<Locale>();
   readonly locales = input<readonly Locale[]>([]);
+  // Always 0 on the server and on the first client render; the layout fills
+  // it in once the client-only cart has loaded.
+  readonly cartCount = input(0);
   readonly localeChange = output<Locale>();
 
   // The group emits whatever value type it was given; only act on an actual
