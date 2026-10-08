@@ -1,4 +1,5 @@
 import { patchState, signalStore, withMethods, withState } from '@ngrx/signals';
+import { produce } from 'immer';
 
 export type BreadcrumbItem = {
   label: string;
@@ -25,10 +26,20 @@ export const BreadcrumbStore = signalStore(
   withState(initialState),
   withMethods((store) => ({
     setTrail(trail: BreadcrumbItem[]): void {
-      patchState(store, { trail });
+      patchState(
+        store,
+        produce<BreadcrumbState>((state) => {
+          state.trail = trail;
+        }),
+      );
     },
     clear(): void {
-      patchState(store, initialState);
+      patchState(
+        store,
+        produce<BreadcrumbState>((state) => {
+          state.trail = [];
+        }),
+      );
     },
   })),
 );

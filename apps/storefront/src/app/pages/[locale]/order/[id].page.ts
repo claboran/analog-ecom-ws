@@ -1,8 +1,8 @@
-import { HttpClient } from '@angular/common/http';
-import { ChangeDetectionStrategy, Component, afterNextRender, inject, signal } from '@angular/core';
+import { httpResource } from '@angular/common/http';
+import { ChangeDetectionStrategy, Component, afterNextRender, computed, inject, signal } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, RouterLink } from '@angular/router';
-import { firstValueFrom, map } from 'rxjs';
+import { map } from 'rxjs';
 import type { RouteMeta } from '@analogjs/router';
 import type { Locale } from '@analog-ecom-ws/product-schema/locales';
 import { HlmButton } from '@spartan-ng/helm/button';
@@ -43,7 +43,6 @@ export const routeMeta: RouteMeta = {
   `,
 })
 export default class OrderPageComponent {
-  private readonly http = inject(HttpClient);
   private readonly route = inject(ActivatedRoute);
 
   protected readonly locale = toSignal(
@@ -51,19 +50,22 @@ export default class OrderPageComponent {
     { initialValue: 'en' as Locale },
   );
 
-  protected readonly state = signal<'loading' | 'ready' | 'missing'>('loading');
-  protected readonly order = signal<OrderView | null>(null);
+  // Set after hydration, so the request never fires during SSR (the resource
+  // stays idle while the request function returns undefined).
+  private readonly orderId = signal<string | null>(null);
+  private readonly orderResource = httpResource<OrderView>(() => {
+    const id = this.orderId();
+    return id === null ? undefined : `/api/orders/${encodeURIComponent(id)}`;
+  });
+
+  protected readonly order = computed(() => (this.orderResource.hasValue() ? this.orderResource.value() : null));
+  protected readonly state = computed<'loading' | 'ready' | 'missing'>(() => {
+    if (this.orderResource.error()) return 'missing';
+    return this.orderResource.hasValue() ? 'ready' : 'loading';
+  });
 
   constructor() {
-    afterNextRender(async () => {
-      const id = this.route.snapshot.paramMap.get('id') ?? '';
-      try {
-        this.order.set(await firstValueFrom(this.http.get<OrderView>(`/api/orders/${encodeURIComponent(id)}`)));
-        this.state.set('ready');
-      } catch {
-        this.state.set('missing');
-      }
-    });
+    afterNextRender(() => this.orderId.set(this.route.snapshot.paramMap.get('id') ?? ''));
   }
 
   protected price(amount: number): string {

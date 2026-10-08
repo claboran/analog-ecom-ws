@@ -53,8 +53,8 @@ export class AppLayoutComponent {
     // Client-only: the session cart is fetched after hydration, never during
     // SSR, so server-rendered pages stay identical for every visitor.
     afterNextRender(() => {
-      void this.session.load();
-      void this.cart.load(this.locale());
+      this.session.load();
+      this.cart.load(this.locale());
     });
 
     // Titles and prices are locale-specific and this layout (like the
@@ -67,7 +67,7 @@ export class AppLayoutComponent {
     effect(() => {
       const locale = this.locale();
       if (untracked(() => this.cart.status()) === 'ready') {
-        void this.cart.load(locale);
+        this.cart.load(locale);
       }
     });
   }

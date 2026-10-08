@@ -47,9 +47,7 @@ const SIGN_IN_NEEDED =
   'The user is not signed in. A login dialog was opened in their browser - ask them to sign in, then call this tool again.';
 
 const isSignedIn = async (session: InstanceType<typeof SessionStore>): Promise<boolean> => {
-  if (session.status() === 'idle') {
-    await session.load();
-  }
+  await session.ensureLoaded();
   return !!session.userName();
 };
 
@@ -153,7 +151,8 @@ export const webMcpTools = [
     inputSchema: { type: 'object', properties: { locale: localeProperty } } as const,
     execute: async (input: { locale?: string }) => {
       const cart = inject(CartStore);
-      await cart.load(resolveLocale(input.locale));
+      cart.load(resolveLocale(input.locale));
+      await cart.whenSettled();
       return text({ lines: cart.lines(), total: cart.total() });
     },
   }),
@@ -168,7 +167,8 @@ export const webMcpTools = [
       const cart = inject(CartStore);
       const router = inject(Router);
       const locale = resolveLocale(input.locale);
-      await cart.load(locale);
+      cart.load(locale);
+      await cart.whenSettled();
       if (cart.lines().length === 0) {
         return failure('The cart is empty (or the user is not signed in). Add products first.');
       }
