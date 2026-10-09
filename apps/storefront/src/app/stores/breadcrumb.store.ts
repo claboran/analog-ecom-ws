@@ -1,4 +1,5 @@
 import { patchState, signalStore, withMethods, withState } from '@ngrx/signals';
+import { produce } from 'immer';
 
 export type BreadcrumbItem = {
   label: string;
@@ -17,17 +18,28 @@ const initialState: BreadcrumbState = { trail: [] };
 
 // Shared across the layout (which renders it) and leaf page components
 // (which set it) - the one piece of state in this app that's actually
-// cross-component, so it's the exception to "signalState, not signalStore"
-// in overall-goals-design.md §8.
+// cross-component, so it's the exception to keeping state in a plain signal
+// inside the component that owns it (overall-goals-design.md §8). The
+// session and cart stores are the other two, for the same reason.
 export const BreadcrumbStore = signalStore(
   { providedIn: 'root' },
   withState(initialState),
   withMethods((store) => ({
     setTrail(trail: BreadcrumbItem[]): void {
-      patchState(store, { trail });
+      patchState(
+        store,
+        produce<BreadcrumbState>((state) => {
+          state.trail = trail;
+        }),
+      );
     },
     clear(): void {
-      patchState(store, initialState);
+      patchState(
+        store,
+        produce<BreadcrumbState>((state) => {
+          state.trail = [];
+        }),
+      );
     },
   })),
 );

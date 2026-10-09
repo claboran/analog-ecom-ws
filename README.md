@@ -54,12 +54,22 @@ curl -H "Accept: text/markdown" http://localhost:3000/en/products/TS-BLK-001  # 
   (standalone, `OnPush`, zoneless, signals, `@defer`), NgRx Signals, Zod,
   Tailwind v4 with [spartan.ng](https://spartan.ng), and a NestJS ingest
   CLI, all in one Nx workspace.
+- **A demo shop on top:** a pseudo login (just a name, in a dialog), a
+  server-side session cart, and a checkout that creates an in-memory
+  order - all client-only, so the server-rendered pages stay identical for
+  every visitor. See [Demo cart, session and checkout](#demo-cart-session-and-checkout).
+- **WebMCP, so an agent can act and not only read:** a CLI agent searches the
+  catalog, fills the cart and opens checkout in the user's own browser tab;
+  the user signs in and places the order. Angular's experimental WebMCP
+  support, a polyfill and a local relay - see
+  [WebMCP: an agent that can shop](#webmcp-an-agent-that-can-shop).
 - **Built with the frameworks' own AI tooling:** spartan's skill and MCP
   server plus AnalogJS's shipped agent guidance. See
   [Built with each framework's own AI tooling](#built-with-each-frameworks-own-ai-tooling).
 
-This is a showcase, not a product: no cart, checkout, auth or real
-persistence (see [Non-goals](#non-goals)).
+This is a showcase, not a product: the shop is a demo (no passwords, no
+payment, everything in server memory) and there is no real persistence
+(see [Non-goals](#non-goals)).
 
 ## Quick start
 
@@ -99,7 +109,8 @@ With the server running on port 3000:
 | `/` | redirects to `/en` |
 | `/en`, `/de` | landing page, each language |
 | `/en/products`, `/de/products` | product list, with a category filter |
-| `/en/products/TS-BLK-001` | a product detail page |
+| `/en/products/TS-BLK-001` | a product detail page (add to cart; asks you to sign in first) |
+| `/en/cart`, `/en/checkout` | the session cart and checkout (client-only) |
 
 **The agent-facing side — the actual point of this demo.** One product,
 HTML for the browser and three ways for an agent to get markdown:
@@ -248,9 +259,11 @@ separate "make Lighthouse happy" pass:
   This repo passes all 3 *applicable* checks: [`llms.txt` is served at the
   root](#serving-markdown-to-agents), the accessibility tree is clean (the
   same primitives and labeling behind the Accessibility 100 above), and
-  CLS is 0. It's 3/3 and not 4/4 because the fourth check, WebMCP, isn't
-  wired up here — see [Not built (yet)](#not-built-yet) for the
-  considered, not-yet-implemented cart/WebMCP idea.
+  CLS is 0. It's 3/3 and not 4/4 because the fourth check, WebMCP, wasn't
+  wired up when this was measured. It is now - see
+  [WebMCP: an agent that can shop](#webmcp-an-agent-that-can-shop) - but the
+  polyfill that provides `document.modelContext` is loaded in dev builds only,
+  and the score has not been re-measured, so don't read this as 4/4.
 
 **Why this belongs in this README specifically:** the whole premise of this
 repo is that a storefront can be genuinely legible to an agent — served
@@ -494,16 +507,20 @@ scale. Not pursued here for that reason, not because it's unsupported.
   shipped either way) — this is a correctness/explicitness fix, not a
   size one.
 - **State is as small as it can be.** Almost everything is a plain
-  `computed()` derived from the loaded product. The size/color picker on
-  the detail page is the one place with genuinely *owned* local state, so it
-  uses `signalState` + `patchState`, with an `effect()` that resets it when
+  `computed()` derived from the loaded product. The add-to-cart form on
+  the detail page is the one place with genuinely *owned* local state: a
+  signal form (`@angular/forms/signals`) over a writable model signal
+  (size, color, quantity), with an `effect()` that resets the model when
   the product input changes (again, the router reuses the component
-  instance). The one piece of truly cross-component state is the breadcrumb
-  trail: `AppLayoutComponent` renders it but only the active page knows what
-  it should say, so `BreadcrumbStore` (a `signalStore`) holds it. There is
-  no global app state — no cart, no auth.
+  instance). Cross-component state lives in three `signalStore`s:
+  `BreadcrumbStore` (the layout renders the trail but only the active page
+  knows what it should say), and `SessionStore` / `CartStore`, which
+  mirror the server-side session and cart (see
+  [Demo cart, session and checkout](#demo-cart-session-and-checkout)).
 - **No `rxMethod`.** Search was cut from scope, which left no debounced
-  input for it to serve, and it isn't worth adding just to tick a box.
+  input for it to serve. The cart/session stores use plain async methods
+  (`firstValueFrom` + `patchState`) because each call is a one-shot
+  request, not a stream.
 
 ### spartan.ng components
 
@@ -512,7 +529,7 @@ and accessibility, from `@spartan-ng/brain`) and a **helm** layer (Tailwind
 styling) that the CLI *copies into your repo* instead of shipping as a
 dependency. Here the helm code lives in `libs/ui/<primitive>` (config in
 `components.json`), imported as `@spartan-ng/helm/<primitive>`, and is ours
-to edit. Five primitives are used, each replacing hand-written markup:
+to edit. Seven primitives are used, each replacing hand-written markup:
 
 | Primitive | Used for |
 |---|---|
@@ -521,11 +538,14 @@ to edit. Five primitives are used, each replacing hand-written markup:
 | `badge` | category label, stock status |
 | `breadcrumb` | the trail rendered by `BreadcrumbStore` (nav landmark, `aria-current`, decorative separators) |
 | `toggle-group` | locale switcher, size picker, color picker |
+| `dialog` | the sign-in dialog, opened through `HlmDialogService` |
+| `input` | the name field in the sign-in dialog (`hlmInput`) |
 
 The size/color pickers are the interesting one: a single-select toggle
 group gives roving keyboard focus and pressed-state semantics that the old
-hand-styled buttons didn't have, and it binds straight to the existing
-`signalState` selection. Two local edits to the copied code: selected items
+hand-styled buttons didn't have. They aren't form controls, so they read
+and write the add-to-cart form's model signal directly instead of using
+`[formField]`. Two local edits to the copied code: selected items
 are filled with the primary color (the stock "on" state was too faint on
 this background), and the badge gained two project-specific variants,
 `accent` (the one-off brand-accent color, "In stock") and `muted` ("Out of
@@ -551,6 +571,222 @@ which drops the Nx-library scaffold and just places files under
 because it wasn't worth the churn on an already-generated set of
 components, but it's the knob to reach for if the current structure feels
 like more than the workspace needs.
+
+### Demo cart, session and checkout
+
+A small shop flow on top of the catalog, kept deliberately demo-grade: no
+passwords, no payment, and every piece of state lives in server memory.
+
+**The flow.** The header has a *Sign in* button. Signing in means picking a
+display name in a dialog (a spartan `dialog` + a signal form) - no
+credentials. Adding to the cart while signed out opens the same dialog and
+then *continues the add* once you're in; dismissing it (Esc, backdrop) just
+cancels. The cart page lists the lines, checkout reviews them and places an
+in-memory order, and a confirmation page shows it. *Sign out* deletes the
+session, and the cart and orders with it.
+
+**Server (Nitro/h3, `src/server/`).** The session is a random id in an
+httpOnly, `SameSite=Lax` cookie (`secure` outside dev), mapped to
+`{ userName, items, orders }` in a module-level `Map`
+(`server/lib/cart-session.ts` is the only file that touches it). Expiry
+slides on both sides: every lookup that finds a live session refreshes the
+server-side `lastSeen` *and* re-sends the cookie, so they always lapse
+together after 2 hours of inactivity (a fixed cookie max-age would drop the
+cookie while the server still held the session). The map is also capped at
+1000 sessions.
+
+| Endpoint | Behavior |
+|---|---|
+| `GET /api/session` | `{ userName }`, `null` when signed out; never creates a session |
+| `POST /api/session` | pseudo login; signing in again just renames the session and keeps the cart |
+| `DELETE /api/session` | deletes the session (cart + orders) and the cookie |
+| `GET /api/cart?locale=` | the cart lines; titles/prices are looked up at read time |
+| `POST /api/cart/items` | add a line (same sku+size+color merges); validates size/color/stock; **401** without a session |
+| `POST /api/checkout` | prices the cart from the product source, re-checks stock, creates the order, empties the cart |
+| `GET /api/orders/:id` | session-bound: another session gets the same 404 as an unknown id |
+
+The server never trusts the client for prices or titles - those always come
+from the product source (`getProduct`), at read time for the cart and
+frozen into the order at checkout. Stock is tracked per sku, so checkout
+sums the quantities across size/color lines and answers **409** with a
+readable message (`Only 12 of "Leather Derby" in stock`) when it doesn't
+add up. Stock is never *decremented* (the product source is read-only), so
+the check guards the cart against the catalog, not orders against each
+other - two sessions can both order the last unit. Add-to-cart itself only
+checks for stock of at least one.
+
+**Client-only, on purpose.** `SessionStore` and `CartStore` are
+`signalStore`s that mirror the server and stay `idle` during SSR; the
+layout loads them from `afterNextRender`. So server-rendered HTML is
+identical for every visitor (nothing per-user, nothing uncacheable, no
+hydration mismatch): the header renders signed-out with no cart badge, the
+cart/checkout/order pages render a skeleton, and everything fills in after
+hydration. Those pages are `noindex`. A locale switch refetches an
+already-loaded cart (the layout owns that effect), since titles and prices
+are locale-specific; an order is a frozen snapshot and keeps the language
+it was placed in.
+
+A 401 from add-to-cart (session expired, or the server restarted) is
+treated as "signed out": the store resets, the dialog reopens, and the add
+retries once.
+
+**One contract, no zod on the client.** `app/lib/cart-schema.ts` holds the
+zod schemas for the requests *and* responses; the server validates with
+them, and the client's types are `z.infer` types imported with
+`import type` only - erased at compile time, so zod never reaches the
+bundle (the same lesson as the barrel-export entry under
+[Lessons learned](#lessons-learned)). The runtime values the client does
+need (`MAX_QUANTITY`, ...) live in a separate zod-free
+`cart-constants.ts`. Two guards keep that honest: an ESLint rule
+(`@typescript-eslint/no-restricted-imports`, `allowTypeImports`) that fails
+any value import of `cart-schema` under `src/app`, and
+`npm run check:client-zod`, which scans the built client bundle for zod's
+own identifiers.
+
+**Honest limits.** Sessions are lost on restart and aren't shared across
+instances or serverless invocations; there's no CSRF token beyond
+`SameSite=Lax` plus JSON bodies; the checkout, cart and add-to-cart copy is
+English-only (the header and dialog strings are translated in
+`src/i18n/*.json`); and there are no automated tests - the API was
+exercised with `curl` against the built server.
+
+### WebMCP: an agent that can shop
+
+The markdown routes let an agent *read* the shop. WebMCP lets it *act* in it:
+a CLI agent (Claude Code, in the demo) searches the catalog, reads a product,
+fills the cart and sends the user to checkout, in the user's own browser tab
+and session, while the human keeps the irreversible step.
+
+[WebMCP](https://github.com/webmachinelearning/webmcp) is a browser API: a page
+registers tools on `document.modelContext` (older drafts:
+`navigator.modelContext`), and an agent embedded in or attached to the browser
+calls them. The tools run **in the page**, against the same stores the UI uses.
+That is the catch for a terminal agent: it can't see them over HTTP the way it
+reads `.md` routes, so it needs a bridge into a live tab.
+
+```
+Claude Code ──stdio──▶ @mcp-b/webmcp-local-relay ◀──WebSocket (127.0.0.1:9333)── embed.js
+  (MCP client)          (local MCP server)                                          │ in the page
+                                                                       document.modelContext
+                                                           (native in Chrome, or the polyfill)
+                                                                                    ▲
+                                              Angular: provideExperimentalWebMcpTools(...)
+                                                                                    │ execute()
+                                                          CartStore · SessionStore · /api/products
+```
+
+**The tools** (`app/webmcp-tools.ts`). Each is a thin adapter over code the UI
+already uses, so an agent and a human go through the same path:
+
+| Tool | Does |
+|---|---|
+| `search_products` | `query` (every word must match title, category or description), optional `category`; no query lists the catalog. Returns sku, title, price, stock, sizes, colors |
+| `get_product` | one product with its description and the valid sizes and colors |
+| `add_to_cart` | `sku`, `size`, `color`, `quantity`; goes through `CartStore.add`, so the server's size/color/stock validation applies |
+| `view_cart` | the cart lines and total |
+| `go_to_checkout` | navigates the tab to `/<locale>/checkout` and stops |
+
+`locale` is optional everywhere and defaults to the language in the tab's URL.
+
+**Human in the loop, by construction.** There is no `place_order` tool, so an
+agent *cannot* complete a purchase - `go_to_checkout` only opens the review page
+and the user presses *Place order*. The login is the same: `add_to_cart` reuses
+`SessionStore.ensureSignedIn()`, so a signed-out user gets the normal login
+dialog. A tool call that waits on a human runs into the relay's 65 s invoke
+timeout and the agent only sees `Host response timeout`, so the tool opens the
+dialog *without awaiting it* and returns "not signed in - ask the user to sign
+in, then call again". Only one dialog is ever open, however often the agent
+retries. Failures (bad size, unknown sku) come back as `isError` results
+carrying the server's reason and a hint, so the agent can correct itself.
+
+**Angular's own WebMCP support** (Angular 22.1, `@angular/core`, marked
+*experimental - APIs may change even outside major versions*). Tools are
+registered with `provideExperimentalWebMcpTools([...])`; each tool's `execute`
+runs in an injection context, so it just calls `inject(CartStore)`. Details
+that matter here:
+
+- **Browser-only config.** `app/app.config.browser.ts` merges the tools onto
+  `appConfig`, the mirror image of `app.config.server.ts`, and `main.ts`
+  bootstraps with it. The server bundle never contains the tool code (checked
+  with `grep` on the build output). Angular's own registration also no-ops under
+  `ngServerMode`, so this is belt and braces.
+- **It registers on `document.modelContext` first, then falls back to
+  `navigator.modelContext`, and silently does nothing if neither exists.** No
+  error, no warning - a browser without WebMCP just has no tools.
+- **JSON Schema, not Zod.** Input schemas are plain `as const` JSON Schema, so
+  the zod contract in `cart-schema.ts` isn't reused directly (and zod must stay
+  out of the client bundle anyway - see
+  [above](#demo-cart-session-and-checkout)). Angular infers `execute`'s argument
+  type from a const schema, which breaks down for a mixed list of tools, so a
+  small `defineTool<Input>()` helper types the arguments explicitly instead.
+- **Tools need data.** The catalog is only read in server-side load functions,
+  so two small JSON routes back the browser tools: `GET /api/products`
+  (`?locale=&q=&category=`) and `GET /api/products/:sku`. They return a slim
+  projection (no rendered HTML) built from the same `listProducts`/`getProduct`
+  calls as everything else.
+
+**The polyfill and the bridge (dev builds only).** Chrome ships WebMCP behind a
+flag, so for ordinary browsers `main.ts` dynamically imports
+[`@mcp-b/webmcp-polyfill`](https://docs.mcp-b.ai) and calls
+`initializeWebMCPPolyfill()` *before* bootstrapping Angular (the tools register
+at bootstrap, so the global has to exist first). It then injects the relay's
+`embed.js` from jsDelivr, which discovers whatever is registered on
+`document.modelContext` - including tools added later - and forwards it over a
+local WebSocket. The other half is one entry in `.mcp.json`:
+
+```json
+"webmcp-local-relay": { "command": "npx", "args": ["-y", "@mcp-b/webmcp-local-relay@5"] }
+```
+
+Claude Code launches the relay as a stdio MCP server; the relay exposes each
+page tool under its own name plus `webmcp_list_sources`, `webmcp_list_tools`
+and `webmcp_open_page`. Both pieces are gated on `import.meta.env.DEV`, because
+loading a third-party script from a CDN into a production storefront is a
+decision for a real deployment, not a default for a demo.
+
+**Try it.**
+
+1. `npm run dev` (needs S3Mock seeded, see [Quick start](#quick-start)) and open
+   `http://localhost:4200/en` in a normal browser. Keep the tab open: the tools
+   exist only while it does.
+2. Start Claude Code in this repo (it picks up `.mcp.json`; approve the new
+   server) and run `webmcp_list_sources` - the tab should appear with 5 tools.
+3. Ask it something like *"find a leather shoe, add it in size 42 and take me to
+   checkout"*. Sign in when the dialog appears, review the order, press
+   *Place order* yourself.
+
+Behind WSL the relay (in WSL) and the browser (on Windows) still find each other
+over `localhost:9333`.
+
+**Versions and traps.**
+
+- The MCP-B docs describe a v6 API (`setupPolyfill()`, an `embed.js` under
+  `@6`). npm's stable release of both packages is **5.1.0**, where the function is
+  `initializeWebMCPPolyfill` and `@6/.../embed.js` is a 404; only `@6`'s beta
+  exists. Everything here is pinned to 5.x. Re-check when v6 goes stable.
+- The relay accepts WebSocket connections from **any origin** by default. For
+  anything beyond a laptop demo, pass `--widget-origin http://localhost:4200`
+  in the `.mcp.json` args.
+- Two tabs registering the same tool get suffixed names (`search_ed93`, ...);
+  keep one storefront tab open.
+- After a code change, Vite reloads the page and the relay briefly drops and
+  re-lists the tools. A tool's description as your agent client cached it can be
+  stale; `webmcp_list_tools` shows what the page currently registers.
+
+**What was verified, and what wasn't.** Driven for real from Claude Code through
+the relay into a Chrome tab: listing sources, `search_products`, `get_product`,
+`add_to_cart` (including the login dialog completing a queued add, and a bad
+size coming back as a readable error), `view_cart` reflecting a change made in
+the UI, and `go_to_checkout` navigating the tab. **Not** verified: the
+signed-out path of the non-blocking `add_to_cart`, the `de` locale through the
+tools, a production build, other agent clients, and Lighthouse's WebMCP check
+(see [Lighthouse](#lighthouse-100100100100-and-33-on-agentic-browsing)). There
+are no automated tests.
+
+**Limits.** No tool to remove or change a cart line, so an agent that adds the
+wrong item can't undo it. `search_products` is a plain substring match, fine
+for a six-product catalog and nothing more. The tools hold no per-agent identity:
+they act as whoever is signed in in that tab.
 
 ### Built with each framework's own AI tooling
 
@@ -640,6 +876,11 @@ above.
 | `/<locale>/products` | product list (`.server.ts` load function, category filter via query param) |
 | `/<locale>/products/<sku>` | product detail — HTML, or markdown if negotiated |
 | `/<locale>/products/<sku>.md` | always raw markdown |
+| `/<locale>/cart` | the session cart (client-only, `noindex`) |
+| `/<locale>/checkout` | review + place the order (client-only, `noindex`) |
+| `/<locale>/order/<id>` | order confirmation, visible only to the session that placed it |
+| `/api/session`, `/api/cart`, `/api/cart/items`, `/api/checkout`, `/api/orders/<id>` | the demo shop API, see [above](#demo-cart-session-and-checkout) |
+| `/api/products`, `/api/products/<sku>` | slim JSON catalog backing the WebMCP tools (`?locale=&q=&category=`), see [WebMCP](#webmcp-an-agent-that-can-shop) |
 | `/api/og/products/<sku>` | per-product Open Graph image (PNG, `?locale=`) |
 | `/llms.txt` | request-time index → product `.md` routes |
 | `/sitemap-products.xml` | request-time sitemap of the live catalog |
@@ -680,18 +921,27 @@ apps/
     src/app/
       pages/                 file-based routes (see below)
       components/            presentational components (Header, Footer,
-                              Breadcrumb, ProductCard, ProductDetail),
-                              built on the spartan components in libs/ui
+                              Breadcrumb, ProductCard, ProductDetail,
+                              CartItem) plus the lazy LoginDialog, built on
+                              the spartan components in libs/ui
       layout/                AppLayoutComponent - the shared shell
       directives/            JsonLdDirective
-      stores/                BreadcrumbStore
+      webmcp-tools.ts        the WebMCP tools (search, get, add, view, checkout)
+      app.config.browser.ts  browser-only config: appConfig + the WebMCP tools
+      stores/                BreadcrumbStore, SessionStore, CartStore
       lib/                   small pure helpers (price formatting,
-                              product description)
+                              product description) and the cart contract:
+                              cart-schema.ts (zod + z.infer types, import
+                              type only on the client), cart-constants.ts
     src/i18n/                en.json / de.json UI string catalogs
     src/server/
       middleware/            content negotiation, llms.txt, sitemap, robots.txt
       routes/api/og/products/[sku].ts   per-product Open Graph image
-      lib/                   Accept-header/user-agent detection, robots.txt rules
+      routes/api/{session,cart,orders}/, checkout.post.ts   the demo shop API
+      routes/api/products/   JSON catalog for the WebMCP tools
+      lib/                   Accept-header/user-agent detection, robots.txt
+                              rules, cart-session.ts (the in-memory sessions),
+                              product-view.ts (slim product JSON)
 
   product-ingest/          NestJS CLI (nest-commander) - seeds S3Mock,
                             not a running service. `nx run product-ingest:seed`
@@ -704,10 +954,12 @@ libs/
                             sitemap) calls the same getProduct/listProducts
   ui/                      spartan.ng helm components, copied in by the
                             spartan CLI (button, card, badge, breadcrumb,
-                            toggle-group + shared utils) - one Nx lib each
+                            toggle-group, dialog, input + shared utils) -
+                            one Nx lib each
 
 components.json           spartan CLI config (where helm code goes, style)
-.mcp.json                 spartan's MCP server (checked in, applies repo-wide)
+.mcp.json                 spartan's MCP server and the WebMCP relay (checked in,
+                          applies repo-wide)
 .claude/skills/           spartan + analogjs skills - see "Built with each
                           framework's own AI tooling"
 docker-compose.yml        S3Mock, the only external dependency
@@ -721,6 +973,9 @@ index.page.ts                          /  → redirects to /en
 [locale]/index.page.ts                 /:locale            landing page
 [locale]/products/index.page.ts        /:locale/products    product list
 [locale]/products/[sku].page.ts        /:locale/products/:sku    product detail
+[locale]/cart.page.ts                  /:locale/cart        session cart (client-only)
+[locale]/checkout.page.ts              /:locale/checkout    review + place order (client-only)
+[locale]/order/[id].page.ts            /:locale/order/:id   order confirmation (client-only)
 ```
 
 Product list/detail pages each have a sibling `.server.ts` file — Analog's
@@ -734,13 +989,14 @@ server-side, before the page renders.
 | Monorepo | Nx workspace |
 | Meta-framework | [AnalogJS](https://analogjs.org) 2.7 (Angular 22, Vite, Nitro/h3) |
 | Components & styling | [spartan.ng](https://spartan.ng) (`brain` headless primitives + copy-owned `helm` styling, in `libs/ui`) on Tailwind v4, themed through spartan's `hlm-tailwind-preset` |
-| State | `@ngrx/signals` — `signalState` for owned local state, `signalStore` for the breadcrumb trail; plain `computed()` for everything derived |
-| Schema/validation | Zod, shared between the ingest CLI and the storefront |
+| State & forms | `@ngrx/signals` — `signalStore` for the breadcrumb trail and the session/cart mirrors; Angular signal forms for the add-to-cart and sign-in forms; plain `computed()` for everything derived |
+| Schema/validation | Zod, shared between the ingest CLI and the storefront; the cart contract's types reach the client through `import type` only |
 | i18n | AnalogJS's native runtime i18n (`provideI18n`, `[locale]` route segment) |
 | Product storage | S3-compatible object storage (Adobe S3Mock), ephemeral |
 | Content parsing | `front-matter` + `marked` |
 | OG images | Analog's `ImageResponse` (`@analogjs/content/og`), on `satori` + `satori-html` + `sharp` |
 | Ingest tool | NestJS CLI (`nest-commander`) |
+| Agent actions | Angular's experimental WebMCP APIs (`provideExperimentalWebMcpTools`), `@mcp-b/webmcp-polyfill` and `@mcp-b/webmcp-local-relay` 5.x (dev only) |
 
 ## Lessons learned
 
@@ -779,7 +1035,7 @@ several of these tools are used together.
   fails with a confusing `Cannot apply unknown utility class border-border`.
   (2) A toggle group's `nullable` input defaults to `true`, so re-clicking
   the selected size deselected it and left the UI out of sync with the
-  `signalState` behind it; the pickers set `[nullable]="false"`.
+  form model behind it; the pickers set `[nullable]="false"`.
 - **Angular strips literal `<script>` elements from templates** — even
   static ones — so JSON-LD has to be written through `Renderer2`.
 - **A page can't have both a component and `redirectTo`.** Analog's
@@ -831,6 +1087,20 @@ several of these tools are used together.
   exports can force-include the side-effecting half even when only the
   pure half is imported as a value — measure with the actual built output,
   not just source-level `import type` discipline.
+- **A lint guard that never fires is worse than none.** The rule that
+  restricts value imports of `cart-schema` (to keep zod out of the client)
+  passed under `nx lint` even with a planted violation, while a direct
+  `eslint` run caught it. Cause: the Nx lint executor runs from the
+  workspace root, so flat-config `files`/`ignores` globs written relative to
+  the app (`src/app/**`) matched nothing; they need a `**/` prefix. A
+  second trap in the same rule: gitignore-style `group` patterns don't match
+  a `./cart-schema` specifier, so it uses `regex`. Both were found only by
+  deliberately planting a violation - do that for any guard.
+- **A fixed cookie max-age drifts from a sliding server session.** The
+  first session cookie got a 2-hour max-age at creation while the
+  server-side session slid on activity, so a busy session could lose its
+  cookie while the server still held it. Refreshing the cookie on every
+  lookup that finds a live session keeps both expiries the same.
 - **S3Mock fails quiet.** The deprecated bucket env var creates no bucket
   and reports no error (see [Local infrastructure](#local-infrastructure)).
   It only showed up by querying the running container, not by the code
@@ -847,16 +1117,22 @@ several of these tools are used together.
 | `npm run seed` / `seed:clear` | push/clear the demo catalog |
 | `npm run storefront:build` | production build only |
 | `npm run storefront:dev` | Vite dev server only (no docker/seed step) |
+| `npm run check:client-zod` | fail if zod ended up in the built client bundle (run after `storefront:build`) |
 
 ## Non-goals
 
-No cart, checkout, payment, or auth. No real persistence layer — S3Mock is
-the only store, and data is expected to be reseeded on demand. No
-production security or performance hardening. No real search (the category
-filter on the product list follows two static links, not a search box — a
-6-product catalog doesn't need one). No automated tests: this is a
+No payment, no real auth (the sign-in is a display name, no password), and
+no persistent orders: the demo cart, session and orders live in server
+memory and vanish on restart. No real persistence layer — S3Mock is the
+only store for the catalog, and data is expected to be reseeded on demand. No
+production security or performance hardening. No real search in the UI (the
+category filter on the product list follows two static links, not a search
+box — a 6-product catalog doesn't need one); the only search is the
+agent-facing `search_products` tool, a plain substring match. No automated tests: this is a
 showcase repo, verified by hand and by `curl` against a real running
-S3Mock throughout its build, not by a test suite.
+S3Mock throughout its build, not by a test suite. That includes the
+sign-in dialog, which has only been built and linted, not driven in a
+browser.
 
 ## Not built (yet)
 
@@ -865,9 +1141,12 @@ S3Mock throughout its build, not by a test suite.
   still a stretch goal, not attempted.
 - **A `<link rel="alternate" type="text/markdown">` hint** on rendered
   product pages, pointing at the `.md` route.
-
-A fake (client-only, no backend) cart is also being considered — not for
-the cart itself, but to give
-[WebMCP](https://github.com/webmachinelearning/webmcp) something concrete
-to expose (`add_to_cart`, `view_cart`), as the action-taking complement to
-the content-serving agent showcase above.
+- **More WebMCP.** The basics are built (see
+  [WebMCP](#webmcp-an-agent-that-can-shop)); still missing: tools to remove
+  or change a cart line, a production story for the polyfill and relay (they
+  load in dev builds only), a Lighthouse re-run, a check of the signed-out
+  and `de` paths, moving to v6 of the MCP-B packages once it is stable, and
+  Angular's declarative `provideExperimentalWebMcpForms()` for the sign-in
+  form.
+- **Stock decrement, a stock check at add-to-cart beyond "at least one",
+  and translated cart/checkout copy.**

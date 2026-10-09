@@ -1,25 +1,30 @@
-import { ChangeDetectionStrategy, Component, computed, effect, inject, input } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, effect, inject, input, signal } from '@angular/core';
+import { FormField, FormRoot, form, max, min } from '@angular/forms/signals';
 import { DomSanitizer, Meta } from '@angular/platform-browser';
 import { RouterLink } from '@angular/router';
 import { injectBaseURL } from '@analogjs/router/tokens';
-import { patchState, signalState } from '@ngrx/signals';
 import { HlmBadge } from '@spartan-ng/helm/badge';
 import { HlmButton } from '@spartan-ng/helm/button';
 import { HlmToggleGroupImports } from '@spartan-ng/helm/toggle-group';
 import type { Locale, Product } from '@analog-ecom-ws/product-schema';
 import { JsonLdDirective } from '../directives/json-ld.directive';
+import { HttpErrorResponse } from '@angular/common/http';
+import { MAX_QUANTITY } from '../lib/cart-constants';
 import { formatPrice } from '../lib/format-price';
 import { META_DESCRIPTION_MAX_LENGTH, productDescription } from '../lib/product-description';
+import { CartStore } from '../stores/cart.store';
+import { SessionStore } from '../stores/session.store';
 
-type ProductSelectionState = {
-  selectedSize: string | null;
-  selectedColor: string | null;
+type AddToCartModel = {
+  size: string;
+  color: string;
+  quantity: number;
 };
 
 // Purely presentational, same pattern as ProductCardComponent for the
 // signal inputs: price/bodyHtml/jsonLd are pure derivations of `product`/
 // `locale`, so they stay plain `computed()` - there's nothing to "own"
-// between renders, and syncing them into signalState would just be a
+// between renders, and syncing them into local state would just be a
 // second source of truth with no benefit.
 //
 // bodyHtml is rendered with `marked` in libs/s3-client, not Analog's own
@@ -32,22 +37,25 @@ type ProductSelectionState = {
 // `import '@angular/compiler'` workaround). See product-schema.ts for the
 // full note.
 //
-// The size/color picker below is different: the user's *selection* is
-// real state that must persist independently of `product` until they
-// change it, but also has to *reset* whenever `product` changes -
-// Angular Router reuses this exact component instance across
-// /:locale/products/:skuA -> :skuB navigations (same route config, see
-// JsonLdDirective's comment for the same reuse fact), so without an
-// explicit reset a size picked on one product would leak into the next.
-// `signalState` + an `effect()` that re-derives the initial selection
-// from the input, plus action methods that `patchState` the user's
-// choice afterward, is the right shape for exactly that "sync-then-let-
-// the-user-override" state - a plain `computed()` can't do this because
-// selection has to survive independently of the current `product()` read.
+// The add-to-cart form below is different: the user's *selection* is real
+// state that must persist independently of `product` until they change it,
+// but also has to *reset* whenever `product` changes - Angular Router
+// reuses this exact component instance across /:locale/products/:skuA ->
+// :skuB navigations (same route config, see JsonLdDirective's comment for
+// the same reuse fact), so without an explicit reset a size picked on one
+// product would leak into the next. A signal form over a writable model
+// signal fits that: the model is the single source of truth, the `effect()`
+// below re-derives size/color from the input, and the form's validation and
+// submission state come for free. (The toggle groups aren't form controls,
+// so they read/write the model directly instead of using [formField].)
+//
+// Adding requires a signed-in session: the submit action first awaits
+// SessionStore.ensureSignedIn(), which opens the login dialog if needed, so
+// "sign in, then add" is one continuous submit.
 @Component({
   selector: 'app-product-detail',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink, JsonLdDirective, HlmButton, HlmBadge, HlmToggleGroupImports],
+  imports: [RouterLink, JsonLdDirective, HlmButton, HlmBadge, HlmToggleGroupImports, FormRoot, FormField],
   template: `
     <div [appJsonLd]="jsonLd()">
       <a hlmBtn variant="ghost" size="sm" routerLink="..">&larr; Back to products</a>
@@ -84,7 +92,7 @@ type ProductSelectionState = {
                 size="sm"
                 aria-label="Size"
                 [nullable]="false"
-                [value]="selection.selectedSize()"
+                [value]="model().size"
                 (valueChange)="selectSize($event)"
               >
                 @for (size of product().sizes; track size) {
@@ -101,7 +109,7 @@ type ProductSelectionState = {
                 size="sm"
                 aria-label="Color"
                 [nullable]="false"
-                [value]="selection.selectedColor()"
+                [value]="model().color"
                 (valueChange)="selectColor($event)"
               >
                 @for (color of product().colors; track color) {
@@ -110,6 +118,31 @@ type ProductSelectionState = {
               </hlm-toggle-group>
             </div>
           </div>
+
+          <form [formRoot]="addForm" class="mt-8 flex flex-col gap-4">
+            <label class="flex flex-col gap-1 text-sm">
+              <span class="text-muted-foreground">Quantity</span>
+              <input
+                type="number"
+                class="h-9 w-24 rounded-md border border-input bg-background px-2.5"
+                [formField]="addForm.quantity"
+              />
+            </label>
+
+            <div class="flex items-center gap-4">
+              <button hlmBtn type="submit" [disabled]="product().stock < 1 || addForm().submitting()">
+                Add to cart
+              </button>
+              @if (justAdded()) {
+                <a class="text-sm underline" [routerLink]="['/', locale(), 'cart']" role="status">Added - view cart</a>
+              }
+            </div>
+            @for (error of addForm().errors(); track $index) {
+              @if (error.kind === 'server') {
+                <p class="text-sm text-destructive" role="alert">{{ error.message }}</p>
+              }
+            }
+          </form>
 
           <div class="prose prose-sm mt-8 max-w-none" [innerHTML]="bodyHtml()"></div>
         </div>
@@ -125,10 +158,53 @@ export class ProductDetailComponent {
   private readonly meta = inject(Meta);
   private readonly baseUrl = injectBaseURL();
 
-  protected readonly selection = signalState<ProductSelectionState>({
-    selectedSize: null,
-    selectedColor: null,
-  });
+  private readonly cart = inject(CartStore);
+  private readonly session = inject(SessionStore);
+
+  protected readonly model = signal<AddToCartModel>({ size: '', color: '', quantity: 1 });
+  protected readonly justAdded = signal(false);
+
+  protected readonly addForm = form(
+    this.model,
+    (path) => {
+      min(path.quantity, 1);
+      max(path.quantity, MAX_QUANTITY);
+    },
+    {
+      submission: {
+        action: async () => {
+          this.justAdded.set(false);
+          // Dismissing the login dialog is a cancel, not an error.
+          if (!(await this.session.ensureSignedIn())) {
+            return undefined;
+          }
+          const { size, color, quantity } = this.model();
+          const input = { sku: this.product().sku, size, color, quantity, locale: this.locale() };
+          try {
+            try {
+              await this.cart.add(input);
+            } catch (err) {
+              // 401: the session expired (or the server restarted) since the
+              // header last looked. Treat it as signed out, sign in again
+              // and retry once.
+              if (!(err instanceof HttpErrorResponse && err.status === 401)) {
+                throw err;
+              }
+              this.session.markSignedOut();
+              if (!(await this.session.ensureSignedIn())) {
+                return undefined;
+              }
+              await this.cart.add(input);
+            }
+          } catch {
+            return { kind: 'server', message: 'Could not add to cart. Please try again.' };
+          }
+          this.justAdded.set(true);
+          return undefined;
+        },
+      },
+    },
+  );
 
   constructor() {
     // Re-derive the default selection (first size/color) whenever the
@@ -137,10 +213,13 @@ export class ProductDetailComponent {
     // stale or invalid selection across a reused component instance.
     effect(() => {
       const product = this.product();
-      patchState(this.selection, {
-        selectedSize: product.sizes[0] ?? null,
-        selectedColor: product.colors[0] ?? null,
-      });
+      this.model.update((model) => ({
+        ...model,
+        size: product.sizes[0] ?? '',
+        color: product.colors[0] ?? '',
+        quantity: 1,
+      }));
+      this.justAdded.set(false);
     });
 
     // Per-product <meta name="description"> and OG/Twitter image tags.
@@ -177,13 +256,13 @@ export class ProductDetailComponent {
   // out of sync with this state); anything but a string is ignored anyway.
   protected selectSize(size: unknown): void {
     if (typeof size === 'string') {
-      patchState(this.selection, { selectedSize: size });
+      this.model.update((model) => ({ ...model, size }));
     }
   }
 
   protected selectColor(color: unknown): void {
     if (typeof color === 'string') {
-      patchState(this.selection, { selectedColor: color });
+      this.model.update((model) => ({ ...model, color }));
     }
   }
 
